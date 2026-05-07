@@ -22,6 +22,8 @@ class ScreenSettings:
     CRT_SCANLINE_HEIGHT = 3
     TITLE = "Mimic Dice"
 
+    DICE_Y_POS = 450  # The "ground" level for the dice
+
 class InputSettings:
     """Controller button and axis mappings used by gameplay and menus.
 
@@ -62,7 +64,8 @@ class AudioSettings:
 
 class AssetPaths:
     """Class to hold all the file paths for assets."""
-    DICE = "assets/graphics/sprites/six_sided_die.png"
+    DICE_SHEET = "assets/graphics/sprites/six_sided_die.png"
+    DIE_SIZE = 16  # Assuming 16x16 based on the sprite sheet scale
     TV = "assets/graphics/effects/tv.png"
 
 class DebugSettings:

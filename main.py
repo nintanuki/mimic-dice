@@ -3,6 +3,7 @@ from __future__ import annotations
 import pygame
 import sys
 
+from systems.dice_manager import DiceManager
 from crt import CRT
 from settings import ScreenSettings, InputSettings, ColorSettings
 
@@ -25,6 +26,10 @@ class GameManager:
 
         self.setup_controllers()
         self.game_active = False
+
+        # -------- Dice --------
+        
+        self.dice_manager = DiceManager()
 
         # -------- Post-processing --------
         self.full_screen = False
@@ -83,6 +88,10 @@ class GameManager:
             pygame.display.toggle_fullscreen()
             self.full_screen = not self.full_screen
 
+        # Trigger the roll
+        if event.key == pygame.K_SPACE:
+            self.dice_manager.roll_all()
+
     def _handle_joybuttondown(self, event) -> None:
         """Route one controller button press."""
         # Catch the multi-button quit chord on press for instant response;
@@ -122,10 +131,16 @@ class GameManager:
     # -------------------------
 
     def _update_world(self) -> None:
-        pass
+        
+        # Calculate seconds passed since last frame (dt)
+        dt = self.clock.get_time() / 1000.0 
+        self.dice_manager.update(dt)
 
     def _render_frame(self) -> None:
         self.screen.fill(ColorSettings.BG_COLOR)
+
+        # Draw the dice BEFORE the CRT overlay
+        self.dice_manager.draw(self.screen)
 
         # Apply CRT pass after world/UI rendering.
         if not self.full_screen:
