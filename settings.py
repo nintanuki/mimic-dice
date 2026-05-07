@@ -23,6 +23,7 @@ class ScreenSettings:
     TITLE = "Mimic Dice"
 
     DICE_Y_POS = 450  # The "ground" level for the dice
+    DICE_SCALE = 2
 
 class InputSettings:
     """Controller button and axis mappings used by gameplay and menus.
