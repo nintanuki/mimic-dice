@@ -1,4 +1,5 @@
 - [ ] Sound effects for dice
 - [ ] Rest of the UI (player names, score, whose turn it is, etc)
+- [ ] Use bots from legacy folder for AI
 - [ ] Update dice images with treasure chest / mimic theme
 - [ ] Add to Arcade Launcher when complete
