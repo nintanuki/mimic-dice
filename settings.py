@@ -62,6 +62,7 @@ class AudioSettings:
 
 class AssetPaths:
     """Class to hold all the file paths for assets."""
+    DICE = "assets/graphics/sprites/six_sided_die.png"
     TV = "assets/graphics/effects/tv.png"
 
 class DebugSettings:
