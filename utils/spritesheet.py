@@ -1,33 +1,48 @@
+"""Generic sprite-sheet slicer.
+
+`SpriteSheet` knows how to load a single image and cut sub-rectangles out of
+it. It is intentionally agnostic of what the sheet contains - callers pass
+explicit coordinates and an optional scale factor so this class stays
+reusable across different sheets.
+"""
+
 import pygame
-from settings import DiceSettings
+
 
 class SpriteSheet:
-    """Utility for cropping images from a single sheet."""
+    """Load an image once and extract scaled sub-surfaces on demand."""
 
     def __init__(self, filename: str):
-        """
-        Load the sheet and prepare for sub-surface extraction.
-        
+        """Load the sheet from disk.
+
         Args:
             filename: Path to the image file containing the sprite sheet.
         """
         self.sheet = pygame.image.load(filename).convert_alpha()
 
-    def get_image(self, x: int, y: int, width: int, height: int) -> pygame.Surface:
-        """
-        Extract a specific sprite from the sheet.
+    def get_image(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        scale: int = 1,
+    ) -> pygame.Surface:
+        """Return one tile from the sheet, optionally scaled up.
 
         Args:
-            x: The x-coordinate of the top-left corner of the sprite.
-            y: The y-coordinate of the top-left corner of the sprite.
-            width: The width of the sprite.
-            height: The height of the sprite.
+            x: Left edge of the source tile in sheet pixels.
+            y: Top edge of the source tile in sheet pixels.
+            width: Source tile width in pixels.
+            height: Source tile height in pixels.
+            scale: Integer multiplier applied to width and height. Use 1 to
+                keep the sheet's native size.
 
         Returns:
-            A pygame.Surface object containing the extracted sprite.
+            A new `pygame.Surface` with per-pixel alpha containing the tile.
         """
-        image = pygame.Surface((width, height), pygame.SRCALPHA)
-        image.blit(self.sheet, (0, 0), (x, y, width, height))
-
-        new_size = (width * DiceSettings.SCALE, height * DiceSettings.SCALE)
-        return pygame.transform.scale(image, new_size)
+        tile = pygame.Surface((width, height), pygame.SRCALPHA)
+        tile.blit(self.sheet, (0, 0), (x, y, width, height))
+        if scale == 1:
+            return tile
+        return pygame.transform.scale(tile, (width * scale, height * scale))

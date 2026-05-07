@@ -3,7 +3,7 @@ from __future__ import annotations
 import pygame
 import sys
 
-from systems.dice_manager import DiceManager
+from systems.dice_roller import DiceRoller
 from crt import CRT
 from settings import ScreenSettings, InputSettings, ColorSettings, DebugSettings
 
@@ -30,7 +30,7 @@ class GameManager:
         self.game_active = False
 
         # -------- Dice --------
-        self.dice_manager = DiceManager(self.screen.get_size())
+        self.dice_roller = DiceRoller(self.screen.get_size())
 
         # -------- Post-processing --------
         self.full_screen = False
@@ -91,7 +91,7 @@ class GameManager:
 
         # Trigger the roll
         if event.key == pygame.K_SPACE:
-            self.dice_manager.roll_all()
+            self.dice_roller.roll_all()
 
     def _handle_joybuttondown(self, event) -> None:
         """Route one controller button press."""
@@ -119,7 +119,7 @@ class GameManager:
             if event.type == pygame.QUIT:
                 self.close_game()
             elif event.type == pygame.VIDEORESIZE:
-                self.dice_manager.resize((event.w, event.h))
+                self.dice_roller.resize((event.width, event.height))
             elif event.type == pygame.KEYDOWN:
                 self._handle_keydown(event)
             elif event.type == pygame.JOYBUTTONDOWN:
@@ -134,16 +134,18 @@ class GameManager:
     # -------------------------
 
     def _update_world(self) -> None:
-        
-        # Calculate seconds passed since last frame (dt)
-        dt = self.clock.get_time() / 1000.0 
-        self.dice_manager.update(dt)
+        """Advance every gameplay system by one frame."""
+        # `clock.get_time()` returns the last tick's duration in milliseconds;
+        # converting to seconds gives us a frame-rate-independent dt.
+        dt = self.clock.get_time() / 1000.0
+        self.dice_roller.update(dt)
 
     def _render_frame(self) -> None:
+        """Composite one frame: background, gameplay, then CRT overlay."""
         self.screen.fill(ColorSettings.BG_COLOR)
 
-        # Draw the dice BEFORE the CRT overlay
-        self.dice_manager.draw(self.screen)
+        # Draw the dice BEFORE the CRT overlay so scanlines sit on top.
+        self.dice_roller.draw(self.screen)
 
         # Apply CRT pass after world/UI rendering.
         if not self.full_screen and not DebugSettings.DISABLE_CRT:
