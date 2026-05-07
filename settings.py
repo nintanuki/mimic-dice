@@ -22,8 +22,12 @@ class ScreenSettings:
     CRT_SCANLINE_HEIGHT = 3
     TITLE = "Mimic Dice"
 
-    DICE_Y_POS = 450  # The "ground" level for the dice
-    DICE_SCALE = 2
+    DICE_Y_POS = 450  # The "ground" level for the dice? Can we get rid of this now?
+    DICE_SCALE = 4
+
+    # Perspective points
+    TABLE_CENTER_Y = 300
+    HAND_Y_POS = 700 # Off-screen bottom
 
 class InputSettings:
     """Controller button and axis mappings used by gameplay and menus.
@@ -72,3 +76,4 @@ class AssetPaths:
 class DebugSettings:
     """Settings related to debugging features."""
     MUTE = False # Force mute all sound output during testing.
+    DISABLE_CRT = True # Disable the CRT overlay for easier visual debugging.

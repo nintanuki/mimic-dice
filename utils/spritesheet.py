@@ -29,5 +29,6 @@ class SpriteSheet:
         image = pygame.Surface((width, height), pygame.SRCALPHA)
         image.blit(self.sheet, (0, 0), (x, y, width, height))
         
+        # Can't we just do this in settings.py?
         new_size = (width * ScreenSettings.DICE_SCALE, height * ScreenSettings.DICE_SCALE)
         return pygame.transform.scale(image, new_size)

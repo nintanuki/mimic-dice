@@ -5,7 +5,7 @@ import sys
 
 from systems.dice_manager import DiceManager
 from crt import CRT
-from settings import ScreenSettings, InputSettings, ColorSettings
+from settings import ScreenSettings, InputSettings, ColorSettings, DebugSettings
 
 class GameManager:
     """Coordinate game state, flow, rendering phases, and input orchestration."""
@@ -143,7 +143,7 @@ class GameManager:
         self.dice_manager.draw(self.screen)
 
         # Apply CRT pass after world/UI rendering.
-        if not self.full_screen:
+        if not self.full_screen and not DebugSettings.DISABLE_CRT:
             self.crt.draw()
 
     def run(self):

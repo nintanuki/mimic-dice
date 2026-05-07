@@ -26,8 +26,10 @@ class DiceManager:
         self.dice = []
         spacing = ScreenSettings.WIDTH // (count + 1)
         for i in range(count):
-            x = spacing * (i + 1) - (AssetPaths.DIE_SIZE // 2)
-            self.dice.append(Die(x, ScreenSettings.DICE_Y_POS, self.sprites))
+            # Target X is spaced out, Target Y is the table center
+            tx = spacing * (i + 1)
+            ty = ScreenSettings.TABLE_CENTER_Y
+            self.dice.append(Die(tx, ty, self.sprites))
 
     def roll_all(self):
         """Triggers the roll animation for all active dice."""
