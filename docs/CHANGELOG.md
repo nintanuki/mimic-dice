@@ -209,3 +209,37 @@ renamed to `self.dice_roller`; resize handler uses `event.width`/
 `event.height`; both helper methods now have one-line docstrings, and
 the dt comment explains why milliseconds are converted to seconds.
 **Why:** Wires up the renamed dice subsystem and clarifies the loop helpers.
+
+## 2026-05-07 19:22 -04:00 — Documentation overhaul: phased roadmap, architecture manual, contributor rules
+
+**File:** README.md
+**Lines (at time of edit):** 1-95 (rewritten)
+**Before:** Short description with project goal, theme mapping, and a Wikipedia rules quote.
+**After:** Reorganized into About, Status, Rules, Requirements, Install & Run, Controls, Project Structure, Documentation map, and Credits. Adds explicit pointers to TODO, ARCHITECTURE, CHANGELOG, and copilot-instructions.
+**Why:** README is the front door; it needed to clearly say what the project is, how to run it, and where every other doc lives.
+
+**File:** docs/TODO.md
+**Lines (at time of edit):** 1-110 (rewritten)
+**Before:** Five flat bullet points.
+**After:** Six-phase roadmap (Playable Prototype, Multiplayer, Theming, Audio, Polish, Cabinet Integration) with goals and checklists per phase, plus an Open Questions section and a Documentation Maintenance section. Adds explicit Phase 1 task to temporarily map 1-6 number dice to Zombie Dice outcomes; Phase 1 includes AI opponents via legacy bots.
+**Why:** A flat list did not communicate priority or sequencing. Phases enforce 'get it playable, then refine.'
+
+**File:** docs/ARCHITECTURE.md
+**Lines (at time of edit):** (new file)
+**Before:** (file did not exist)
+**After:** Manual-style breakdown of the program shape, frame loop, dice subsystem (DiceRoller / DiceTray / AnimatedDie), CRT overlay, settings philosophy, asset pipeline, input model, and code conventions. Includes a placeholder note that current 1-6 dice will be mapped to Zombie Dice outcomes during Phase 1 and replaced in Phase 3.
+**Why:** New required reading for contributors. Explains the parts unique to this game so editors do not have to reverse-engineer them.
+
+**File:** .github/copilot-instructions.md
+**Lines (at time of edit):** 1-80 (rewritten)
+**Before:** Single-section refactoring rules with one short reading requirement and a UI-text rule.
+**After:** Reorganized into Required reading order (README -> TODO -> ARCHITECTURE -> CHANGELOG -> source), Required actions after a change (CHANGELOG + ARCHITECTURE + TODO updates), Code style, Architecture rules, File and function layout (codifies the all-caps banner comment as the standard section separator and includes the literal template), Comments and docstrings, UI text, and the Mental testing checklist.
+**Why:** Existing rules survived but were reorganized for clarity, and three new rules were added: doc reading order, ARCHITECTURE.md maintenance after system changes, and the codified section-banner comment style the user pointed at.
+
+**File:** requirements.txt
+**Lines (at time of edit):** (new file)
+**Before:** (file did not exist)
+**After:** Single line `pygame>=2.5`.
+**Why:** Standard Python dependency manifest. Lets new contributors run `pip install -r requirements.txt` instead of guessing what to install.
+
+**Editor:** Bryan, with GitHub Copilot (Claude Sonnet 4.5).

@@ -1,16 +1,90 @@
 # Mimic Dice
-A Zombie Dice clone made in Pygame
 
-## Goal
+A treasure-and-mimics reskin of *Zombie Dice*, built in Python and Pygame for a custom arcade cabinet.
 
-To recreate [Zombie Dice](https://en.wikipedia.org/wiki/Zombie_Dice) in Pygame. Zombie Dice is a "press your luck" party dice game created by Steve Jackson Games and released in 2010. My version will be themed on treasure chests and mimics.
+---
 
-Treasure Chest = Brains
-Empty Chest = Runners
-Mimic = Shotgun Blast
+## About
 
-As one of the projects I completed from following along with [Automate the Boring Stuff with Python](https://automatetheboringstuff.com/) by Al Sweigart, I have already created bots that can act as the games AI. See legacy folder. I'm tentitavely going to make the game 1 to 4 players, and will worry about how multiple human players will work later. The animated dice are just regular 6 sided die for now. I will later add themed faces.
+Mimic Dice is a "press your luck" party dice game inspired by [Zombie Dice](https://en.wikipedia.org/wiki/Zombie_Dice) (Steve Jackson Games, 2010). The mechanics stay faithful to the original; the theme is reimagined as a dungeon crawl where adventurers crack open chests hoping for treasure and praying they don't wake a mimic.
 
-## Zombie Dice Rules (from Wikipedia)
+| Zombie Dice | Mimic Dice |
+| --- | --- |
+| Brain | Treasure Chest |
+| Runner | Empty Chest |
+| Shotgun Blast | Mimic |
 
-The gameplay of Zombie Dice is simple. The player has to shake a cup containing 13 dice and randomly select 3 of them without looking into the cup and then roll them. The faces of each die represent brains, shotgun blasts or "runners" with different colours containing a different distribution of faces (the 6 green dice have 3 brains, 1 shotgun and 2 runners, the 4 yellow dice have 2 of each and the 3 red dice have 1 brain, 3 shotguns and 2 runners). The object of the game is to roll 13 brains. If a player rolls 3 shotgun blasts their turn ends and they lose the brains they have accumulated so far that turn. It is possible for a player to roll 3 blasts in a single roll, but if only one or two blasts have been rolled the player will have to decide whether it is worth it to risk rolling again or "bank" the brains acquired so far and pass play to the next player. A "runner" is represented by feet and rolling a runner means that the player can roll that same dice if they choose to press their luck. A winner is determined if a player rolls 13 brains and all other players have taken at least one more turn without reaching 13 brains.
+This project is part of a larger arcade cabinet build. The cabinet runs an in-house launcher; Mimic Dice is one of several games written for it.
+
+## Status
+
+**Phase 1 — Playable Prototype** (in progress).
+The dice physics and tray rendering are working. Game loop, scoring, turn flow, and AI opponents are next. See [docs/TODO.md](docs/TODO.md) for the full roadmap.
+
+## Rules
+
+The player shakes a cup of 13 dice and randomly draws 3 without looking. Dice come in three colors with different face distributions:
+
+- **6 green dice** — 3 brains, 1 shotgun, 2 runners (safe).
+- **4 yellow dice** — 2 of each (medium).
+- **3 red dice** — 1 brain, 3 shotguns, 2 runners (dangerous).
+
+The goal is to collect **13 brains**. After each roll the player chooses to *bank* their brains and pass the turn, or *push their luck* and roll again. Runners stay on the table and are re-rolled with new dice drawn from the cup to bring the next roll back to 3 dice. **Three shotguns in a single turn busts the player and wipes their brains for that turn.** First to 13 brains wins, with all other players getting one final turn to tie or beat them.
+
+> *Source: paraphrased from [Zombie Dice — Wikipedia](https://en.wikipedia.org/wiki/Zombie_Dice).*
+
+## Requirements
+
+- Python 3.10+
+- [Pygame](https://www.pygame.org/) 2.5+
+
+## Install & Run
+
+```powershell
+git clone <repo-url> mimic-dice
+cd mimic-dice
+pip install -r requirements.txt
+python main.py
+```
+
+### Controls (current prototype)
+
+| Action | Keyboard | Controller |
+| --- | --- | --- |
+| Roll dice | `Space` | — *(TBD)* |
+| Toggle fullscreen | `F11` | `Back` |
+| Quit | Close window | `Start + Back + L1 + R1` |
+
+## Project Structure
+
+```
+mimic-dice/
+├── main.py              # Entry point and GameManager (thin coordinator).
+├── settings.py          # All tunable constants. No magic numbers elsewhere.
+├── crt.py               # CRT scanline + flicker post-process overlay.
+├── requirements.txt     # Python package dependencies.
+├── systems/             # Gameplay systems (dice physics, tray, etc.).
+├── ui/                  # UI widgets and screens.
+├── core/                # Cross-cutting helpers shared by systems.
+├── utils/               # Generic utilities (e.g. spritesheet slicer).
+├── assets/              # Graphics, audio, and fonts.
+├── legacy/              # Reference code, including the AI bots from
+│                        # "Automate the Boring Stuff" used as Phase 2 AI.
+└── docs/                # Project documentation (read these in order below).
+```
+
+## Documentation
+
+Read these in order before contributing:
+
+1. **[README.md](README.md)** — *(this file)* what the project is and how to run it.
+2. **[docs/TODO.md](docs/TODO.md)** — phased roadmap and known challenges.
+3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — how the code actually works.
+4. **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — append-only history of every change.
+5. **[.github/copilot-instructions.md](.github/copilot-instructions.md)** — required reading for every editor, human or AI.
+
+## Credits
+
+- Original game design: *Zombie Dice* by Steve Jackson Games.
+- AI bot reference: Al Sweigart, *[Automate the Boring Stuff with Python](https://automatetheboringstuff.com/)*. See [legacy/zombie-dice-bots/](legacy/zombie-dice-bots/).
+- Sprite attributions: [assets/graphics/sprites/attributions.md](assets/graphics/sprites/attributions.md).
