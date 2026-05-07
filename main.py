@@ -18,7 +18,9 @@ class GameManager:
         """
 
         pygame.init()
-        self.screen = pygame.display.set_mode((ScreenSettings.RESOLUTION), pygame.SCALED)
+        self.screen = pygame.display.set_mode(
+            ScreenSettings.RESOLUTION, pygame.RESIZABLE
+        )
         pygame.display.set_caption(ScreenSettings.TITLE)
         if start_fullscreen:
             pygame.display.toggle_fullscreen()
@@ -28,8 +30,7 @@ class GameManager:
         self.game_active = False
 
         # -------- Dice --------
-        
-        self.dice_manager = DiceManager()
+        self.dice_manager = DiceManager(self.screen.get_size())
 
         # -------- Post-processing --------
         self.full_screen = False
@@ -117,6 +118,8 @@ class GameManager:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.close_game()
+            elif event.type == pygame.VIDEORESIZE:
+                self.dice_manager.resize((event.w, event.h))
             elif event.type == pygame.KEYDOWN:
                 self._handle_keydown(event)
             elif event.type == pygame.JOYBUTTONDOWN:

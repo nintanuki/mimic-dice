@@ -21,13 +21,7 @@ class ScreenSettings:
     CRT_ALPHA_RANGE = (75, 90)
     CRT_SCANLINE_HEIGHT = 3
     TITLE = "Mimic Dice"
-
-    DICE_Y_POS = 450  # The "ground" level for the dice? Can we get rid of this now?
-    DICE_SCALE = 4
-
-    # Perspective points
-    TABLE_CENTER_Y = 300
-    HAND_Y_POS = 700 # Off-screen bottom
+    UI_BORDER_WIDTH = 2
 
 class InputSettings:
     """Controller button and axis mappings used by gameplay and menus.
@@ -70,8 +64,43 @@ class AudioSettings:
 class AssetPaths:
     """Class to hold all the file paths for assets."""
     DICE_SHEET = "assets/graphics/sprites/six_sided_die.png"
-    DIE_SIZE = 16  # Assuming 16x16 based on the sprite sheet scale
+    DIE_SIZE = 16  # Source tile size on the sprite sheet (square).
+    DICE_FACE_ROW = 0     # Row index on the sheet for settled white faces.
+    DICE_TUMBLE_ROW = 14  # Row index on the sheet for white tumble poses.
+    DICE_TUMBLE_FRAME_COUNT = 6
     TV = "assets/graphics/effects/tv.png"
+
+class DiceSettings:
+    """Dice rendering, tray bounds, and roll physics."""
+
+    # ---- Visuals ----
+    COUNT = 3
+    SCALE = 2  # Source-pixel scale factor applied to every die sprite.
+
+    # ---- Tray placement (top-left anchored, in window pixels) ----
+    TRAY_PADDING = (32, 32)        # Empty space left/top of the tray.
+    TRAY_SIZE = (480, 360)         # Tray width/height in window pixels.
+    TRAY_BORDER_COLOR = (220, 220, 220)
+    TRAY_INNER_MARGIN = 4          # Physics inset from the visible border.
+
+    # ---- Throw ----
+    # Origin corner of the tray that dice are thrown from.
+    # One of: "bottom_left", "bottom_right", "top_left", "top_right".
+    THROW_ORIGIN = "bottom_left"
+    THROW_SPAWN_OFFSET = 24        # How far outside the tray dice spawn (px).
+    THROW_ANGLE_DEG = -55          # Aim angle (0=right, -90=up).
+    THROW_ANGLE_SPREAD_DEG = 25    # +/- random spread per die so they fan out.
+    THROW_SPEED_MIN = 600          # Initial speed range in px/sec.
+    THROW_SPEED_MAX = 850
+
+    # ---- Physics ----
+    LINEAR_DRAG = 1.6              # Per-second exponential velocity decay.
+    RESTITUTION = 0.65             # Velocity retained after a wall bounce.
+    SETTLE_SPEED = 40              # Below this speed (px/sec) the die settles.
+
+    # ---- Tumble animation ----
+    TUMBLE_FPS_MIN = 10            # Tumble frame rate near settle.
+    TUMBLE_FPS_MAX = 30            # Tumble frame rate at peak speed.
 
 class DebugSettings:
     """Settings related to debugging features."""

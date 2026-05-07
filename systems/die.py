@@ -1,91 +1,159 @@
-import pygame
-import random
 import math
-from settings import ScreenSettings
+import random
+import pygame
+
+from settings import DiceSettings
+
 
 class Die:
-    """Handles the animation and state of a single rolling die."""
+    """A single die animated by simple 2D physics inside a `DiceTray`."""
 
-    def __init__(self, target_x: int, target_y: int, sprites: list[pygame.Surface]):
-        """
-        Initialize the die's position, sprites, and animation state.
-        
+    def __init__(
+        self,
+        face_sprites: list[pygame.Surface],
+        tumble_sprites: list[pygame.Surface],
+    ):
+        """Store the sprite frames; spawn idle until `roll()` is called.
+
         Args:
-            target_x: The X coordinate of the die's target position.
-            target_y: The Y coordinate of the die's target position.
-            sprites: A list of 6 pygame.Surface objects representing the die faces.
+            face_sprites: 6 settled-face frames (indexed 0..5 = faces 1..6).
+            tumble_sprites: Mid-tumble frames cycled while moving.
         """
-        self.target_pos = pygame.Vector2(target_x, target_y)
-        self.start_pos = pygame.Vector2(target_x, ScreenSettings.HAND_Y_POS)
-        self.current_pos = pygame.Vector2(self.start_pos)
-        
-        self.sprites = sprites
-        self.current_frame = 0
+        self.face_sprites = face_sprites
+        self.tumble_sprites = tumble_sprites
+        self.size = face_sprites[0].get_width()
+
+        self.pos = pygame.Vector2(0, 0)
+        self.vel = pygame.Vector2(0, 0)
         self.is_rolling = False
-        
-        self.timer = 0
-        self.duration = 0.8
+        self.face_index = 0
+        self.tumble_index = 0
+        self.tumble_timer = 0.0
 
-    def roll(self) -> None:
-        """Trigger the rolling animation."""
-        if not self.is_rolling:
-            self.is_rolling = True
-            self.timer = 0
-            self.current_pos = pygame.Vector2(self.start_pos)
+    # -------------------------
+    # ROLL / SPAWN
+    # -------------------------
 
-    def _ease_out_cubic(self, t: float) -> float:
-        """
-        Cubic easing out function for smooth animation.
-        
+    def roll(self, tray_rect: pygame.Rect) -> None:
+        """Launch the die from the configured tray corner with random spread.
+
         Args:
-            t: A value between 0 and 1 representing the progress of the animation.
-        Returns:
-            The eased value corresponding to the input progress.
+            tray_rect: The current tray bounds (window pixels).
         """
-        return 1 - pow(1 - t, 3)
+        self.pos = pygame.Vector2(self._spawn_point(tray_rect))
+        angle_deg = DiceSettings.THROW_ANGLE_DEG + random.uniform(
+            -DiceSettings.THROW_ANGLE_SPREAD_DEG,
+            DiceSettings.THROW_ANGLE_SPREAD_DEG,
+        )
+        speed = random.uniform(
+            DiceSettings.THROW_SPEED_MIN, DiceSettings.THROW_SPEED_MAX
+        )
+        angle_rad = math.radians(angle_deg)
+        self.vel = pygame.Vector2(
+            math.cos(angle_rad) * speed, math.sin(angle_rad) * speed
+        )
+        self.is_rolling = True
+        self.tumble_timer = 0.0
+        self.tumble_index = random.randrange(len(self.tumble_sprites))
 
-    def _ease_in_cubic(self, t: float) -> float:
-        """
-        Cubic easing in function for smooth animation.
-        
-        Args:
-            t: A value between 0 and 1 representing the progress of the animation.
-        Returns:
-            The eased value corresponding to the input progress.
-        """
-        return t * t * t
+    def _spawn_point(self, tray_rect: pygame.Rect) -> tuple[float, float]:
+        """Return a spawn position just outside the configured tray corner."""
+        offset = DiceSettings.THROW_SPAWN_OFFSET
+        corners = {
+            "bottom_left": (tray_rect.left - offset, tray_rect.bottom + offset),
+            "bottom_right": (tray_rect.right + offset, tray_rect.bottom + offset),
+            "top_left": (tray_rect.left - offset, tray_rect.top - offset),
+            "top_right": (tray_rect.right + offset, tray_rect.top - offset),
+        }
+        return corners[DiceSettings.THROW_ORIGIN]
 
-    def update(self, dt: float) -> None:
+    # -------------------------
+    # PHYSICS
+    # -------------------------
+
+    def _apply_drag(self, dt: float) -> None:
+        """Exponentially decay velocity to mimic table friction."""
+        decay = math.exp(-DiceSettings.LINEAR_DRAG * dt)
+        self.vel *= decay
+
+    def _bounce_against(self, bounds: pygame.Rect) -> None:
+        """Clamp position into `bounds` and reflect velocity on each hit.
+
+        Uses absolute-value reflection (not simple negation) so a die that
+        spawns outside the tray cannot keep ricocheting back out.
         """
-        Calculate the Y offset based on the cubic easing logic.
-        
+        half = self.size / 2
+        min_x = bounds.left + half
+        max_x = bounds.right - half
+        min_y = bounds.top + half
+        max_y = bounds.bottom - half
+
+        if self.pos.x < min_x:
+            self.pos.x = min_x
+            self.vel.x = abs(self.vel.x) * DiceSettings.RESTITUTION
+        elif self.pos.x > max_x:
+            self.pos.x = max_x
+            self.vel.x = -abs(self.vel.x) * DiceSettings.RESTITUTION
+
+        if self.pos.y < min_y:
+            self.pos.y = min_y
+            self.vel.y = abs(self.vel.y) * DiceSettings.RESTITUTION
+        elif self.pos.y > max_y:
+            self.pos.y = max_y
+            self.vel.y = -abs(self.vel.y) * DiceSettings.RESTITUTION
+
+    def _advance_tumble(self, dt: float) -> None:
+        """Cycle the tumble frame at a rate proportional to current speed."""
+        speed = self.vel.length()
+        speed_max = DiceSettings.THROW_SPEED_MAX
+        t = 0.0 if speed_max <= 0 else min(1.0, speed / speed_max)
+        fps = (
+            DiceSettings.TUMBLE_FPS_MIN
+            + (DiceSettings.TUMBLE_FPS_MAX - DiceSettings.TUMBLE_FPS_MIN) * t
+        )
+        self.tumble_timer += dt * fps
+        if self.tumble_timer >= 1.0:
+            steps = int(self.tumble_timer)
+            self.tumble_timer -= steps
+            self.tumble_index = (self.tumble_index + steps) % len(self.tumble_sprites)
+
+    def _settle(self) -> None:
+        """Stop the die and pick a final face."""
+        self.is_rolling = False
+        self.vel.update(0, 0)
+        self.face_index = random.randrange(len(self.face_sprites))
+
+    # -------------------------
+    # UPDATE / DRAW
+    # -------------------------
+
+    def update(self, dt: float, bounds: pygame.Rect) -> None:
+        """Advance physics, bounce off tray walls, and animate frames.
+
         Args:
-            dt: The time elapsed since the last update in seconds.
+            dt: Seconds since last frame.
+            bounds: Current physics bounds (already inset from tray border).
         """
         if not self.is_rolling:
             return
 
-        self.timer += dt
-        progress = self.timer / self.duration
+        self._apply_drag(dt)
+        self.pos += self.vel * dt
+        self._bounce_against(bounds)
+        self._advance_tumble(dt)
 
-        if progress < 1.0:
-            # Calculate easing
-            eased_t = self._ease_out_cubic(progress)
-            
-            # Move from Hand to Table
-            self.current_pos = self.start_pos.lerp(self.target_pos, eased_t)
-            
-            # Spin the frames while moving
-            self.current_frame = random.randint(0, 5)
-        else:
-            # Animation complete
-            self.is_rolling = False
-            self.current_pos = pygame.Vector2(self.target_pos)
-            self.current_frame = random.randint(0, 5) # Final result
+        if self.vel.length() < DiceSettings.SETTLE_SPEED:
+            self._settle()
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Render the current die frame at the calculated position."""
-        # Offset by half sprite size to center the image on the coordinate
-        size = self.sprites[0].get_width()
-        render_pos = (self.current_pos.x - size // 2, self.current_pos.y - size // 2)
-        surface.blit(self.sprites[self.current_frame], render_pos)
+        """Render the current frame centered on `pos`."""
+        sprite = (
+            self.tumble_sprites[self.tumble_index]
+            if self.is_rolling
+            else self.face_sprites[self.face_index]
+        )
+        render_pos = (
+            int(self.pos.x - self.size / 2),
+            int(self.pos.y - self.size / 2),
+        )
+        surface.blit(sprite, render_pos)

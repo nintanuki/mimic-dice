@@ -1,47 +1,69 @@
 import pygame
+
 from systems.die import Die
+from systems.dice_tray import DiceTray
 from utils.spritesheet import SpriteSheet
-from settings import AssetPaths, ScreenSettings
+from settings import AssetPaths, DiceSettings
+
 
 class DiceManager:
-    """Manages a collection of Die objects and their shared assets."""
+    """Owns the dice tray, dice instances, and shared sprite frames."""
 
-    def __init__(self):
-        self.dice: list[Die] = []
-        self.sprites = self._load_dice_sprites()
-        
-        # Initialize 3 dice for the start (standard for Zombie Dice)
-        self.setup_dice(3)
+    def __init__(self, window_size: tuple[int, int]):
+        """Load sprites, build the tray, and create `DiceSettings.COUNT` dice.
 
-    def _load_dice_sprites(self) -> list[pygame.Surface]:
-        """Slices the first row of the sprite sheet for the 6 faces."""
+        Args:
+            window_size: Initial (width, height) of the display surface.
+        """
         sheet = SpriteSheet(AssetPaths.DICE_SHEET)
-        return [
-            sheet.get_image(i * AssetPaths.DIE_SIZE, 0, AssetPaths.DIE_SIZE, AssetPaths.DIE_SIZE)
-            for i in range(6)
+        self.face_sprites = self._load_row(sheet, AssetPaths.DICE_FACE_ROW, 6)
+        self.tumble_sprites = self._load_row(
+            sheet, AssetPaths.DICE_TUMBLE_ROW, AssetPaths.DICE_TUMBLE_FRAME_COUNT
+        )
+
+        self.tray = DiceTray(window_size)
+        self.dice: list[Die] = [
+            Die(self.face_sprites, self.tumble_sprites)
+            for _ in range(DiceSettings.COUNT)
         ]
 
-    def setup_dice(self, count: int):
-        """Creates die instances spaced across the screen."""
-        self.dice = []
-        spacing = ScreenSettings.WIDTH // (count + 1)
-        for i in range(count):
-            # Target X is spaced out, Target Y is the table center
-            tx = spacing * (i + 1)
-            ty = ScreenSettings.TABLE_CENTER_Y
-            self.dice.append(Die(tx, ty, self.sprites))
+    # -------------------------
+    # SETUP
+    # -------------------------
 
-    def roll_all(self):
-        """Triggers the roll animation for all active dice."""
+    @staticmethod
+    def _load_row(sheet: SpriteSheet, row: int, count: int) -> list[pygame.Surface]:
+        """Slice `count` consecutive tiles from `row` of the sprite sheet."""
+        size = AssetPaths.DIE_SIZE
+        return [
+            sheet.get_image(i * size, row * size, size, size) for i in range(count)
+        ]
+
+    def resize(self, window_size: tuple[int, int]) -> None:
+        """Resize the tray when the window changes size."""
+        self.tray.resize(window_size)
+
+    # -------------------------
+    # ACTIONS
+    # -------------------------
+
+    def roll_all(self) -> None:
+        """Throw every die from the configured tray corner."""
         for die in self.dice:
-            die.roll()
+            die.roll(self.tray.rect)
 
-    def update(self, dt: float):
-        """Updates animation logic for all dice."""
+    # -------------------------
+    # UPDATE / DRAW
+    # -------------------------
+
+    def update(self, dt: float) -> None:
+        """Advance physics for every die against the tray's inner bounds."""
+        bounds = self.tray.inner_rect(DiceSettings.TRAY_INNER_MARGIN)
         for die in self.dice:
-            die.update(dt)
+            die.update(dt, bounds)
 
-    def draw(self, surface: pygame.Surface):
-        """Renders all dice to the screen."""
+    def draw(self, surface: pygame.Surface) -> None:
+        """Render the tray border and every die on top of it."""
+        self.tray.draw(surface)
         for die in self.dice:
             die.draw(surface)

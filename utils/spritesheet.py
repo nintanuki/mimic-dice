@@ -1,5 +1,5 @@
 import pygame
-from settings import ScreenSettings
+from settings import DiceSettings
 
 class SpriteSheet:
     """Utility for cropping images from a single sheet."""
@@ -28,7 +28,6 @@ class SpriteSheet:
         """
         image = pygame.Surface((width, height), pygame.SRCALPHA)
         image.blit(self.sheet, (0, 0), (x, y, width, height))
-        
-        # Can't we just do this in settings.py?
-        new_size = (width * ScreenSettings.DICE_SCALE, height * ScreenSettings.DICE_SCALE)
+
+        new_size = (width * DiceSettings.SCALE, height * DiceSettings.SCALE)
         return pygame.transform.scale(image, new_size)
