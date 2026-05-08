@@ -11,7 +11,7 @@ class GameManager:
     """Coordinate game state, flow, rendering phases, and input orchestration."""
 
     def __init__(self, start_fullscreen: bool = False):
-        """Initialize runtime systems, persistent state, and the first dungeon level.
+        """Initialize the game, including pygame subsystems, window, and all game systems.
 
         Args:
             start_fullscreen: Whether to launch directly in fullscreen mode.
