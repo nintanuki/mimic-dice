@@ -1,3 +1,21 @@
+"""
+100000 Games Run
+
+# | Name    | Wins  | Ties |
+# |---------|-------|------|
+# | Carl    | 14960 | 369  |
+# | Negan   | 14940 | 383  |
+# | Maggie  | 13911 | 390  |
+# | Alice   | 13395 | 354  |
+# | Daryl   | 13249 | 355  |
+# | Rick    | 11230 | 382  |
+# | Lizzie  | 10113 | 298  |
+# | Shane   | 4705  | 188  |
+# | Eugene  | 1447  | 87   |
+# | Bob     | 635   | 47   |
+# | Morgan  | 0     | 0    |
+"""
+
 import zombiedice, random
 
 class Bob:
