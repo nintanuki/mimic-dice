@@ -19,6 +19,7 @@ class ColorSettings:
     RED = (255, 0, 0)
     GREEN = (0, 255, 0)
     BLUE = (0, 0, 255)
+    YELLOW = (255, 220, 60)        # Warm yellow used for the actively-typing log line.
     LIGHT_GREY = (220, 220, 220)
     VELVET_GREEN = (24, 78, 56)    # Deep felt green, classic gaming-table look.
     MAROON = (96, 28, 36)          # Deep red felt, alternative tray color.
@@ -28,6 +29,13 @@ class ColorSettings:
     OVERLAY_BACKGROUND = WHITE     # Base color used by the CRT scanline overlay.
     TRAY_BORDER_COLOR = LIGHT_GREY # Outline drawn around the dice tray.
     TRAY_FILL_COLOR = VELVET_GREEN # Inside of the dice tray (felt surface).
+    PANEL_BORDER_COLOR = LIGHT_GREY  # Outline drawn around UI panel frames.
+    PANEL_FILL_COLOR = BLACK         # Inside of UI panel frames; lets text stand out.
+    LOG_TEXT_DEFAULT = WHITE         # Color of settled (historical) log lines.
+    LOG_TEXT_ACTIVE = YELLOW         # Color of the in-progress (typing) log line.
+    LOG_HIGHLIGHT_MIMIC = RED        # Inline color of MIMIC/MIMICS/BUST tokens.
+    LOG_HIGHLIGHT_TREASURE = GREEN   # Inline color of TREASURE/BANK/WIN tokens.
+    LOG_HIGHLIGHT_EMPTY = LIGHT_GREY # Inline color of EMPTY-chest tokens.
 
 
 class ScreenSettings:
@@ -80,6 +88,17 @@ class FontSettings:
         os.path.dirname(__file__), 'assets', 'font', 'Pixeled.ttf'
     )
 
+    # ---- Sizes used across UI elements ----
+    # Tier ladder ported from Dungeon Digger so the cabinet has a single
+    # consistent type scale across all of its games. The message log uses its
+    # own size constant in MessageLogSettings; everything else (HUD lines,
+    # banked-score readouts, stats-panel headings, GAME OVER title) picks
+    # from this ladder.
+    HUD_SIZE = 10                  # Per-row text in the stats panel, HUD readouts.
+    SCORE_SIZE = 12                # Banked-score numerals; slightly heavier than HUD.
+    LARGE_SIZE = 16                # Section headings and the play-again prompt.
+    ENDGAME_SIZE = 32              # Centered GAME OVER / CONGRATULATIONS title.
+
 
 class AudioSettings:
     """Global audio toggles and mixer-level defaults."""
@@ -108,6 +127,97 @@ class AssetPaths:
     DIE_TUMBLE_FRAME_COUNT = 6     # Number of mid-tumble frames in that row.
 
 
+class LayoutSettings:
+    """Window-frame layout: stats panel right, message log bottom, tray top-left.
+
+    The window is partitioned into three non-overlapping regions plus a uniform
+    outer padding:
+
+        +---------------------+----------+
+        |                     |          |
+        |     Dice tray       |  Stats   |
+        |                     |  panel   |
+        +---------------------+          |
+        |     Message log     |          |
+        +---------------------+----------+
+
+    Every constant here is in window pixels. The actual rectangles are
+    computed at runtime by `ui.layout` from the current window size, which
+    keeps the layout responsive to `pygame.VIDEORESIZE` events.
+    """
+
+    PANEL_PADDING = 16             # Gap between any panel and the window edge.
+    PANEL_GAP = 12                 # Gap between the tray and adjacent panels.
+    STATS_PANEL_WIDTH = 240        # Width of the tall stats panel (right side).
+    MESSAGE_LOG_HEIGHT = 180       # Height of the wide message log (bottom).
+    PANEL_BORDER_WIDTH = 2         # Thickness of panel frame outlines (px).
+    PANEL_BORDER_RADIUS = 6        # Rounded-corner radius of panel frames (px).
+
+
+class MessageLogSettings:
+    """Typewriter-animated bottom-of-window message log."""
+
+    MAX_MESSAGES = 5               # Lines of history kept above the active line.
+    LINE_HEIGHT = 22               # Vertical spacing between log lines (px).
+    TEXT_PADDING = 16              # Inset between the log frame and its text (px).
+    FONT_SIZE = 8                  # Font size for log text.
+
+    # Characters revealed per frame during the typewriter animation. Lower
+    # values type more slowly; values >= 1.0 are effectively instant.
+    TYPING_SPEED = 0.25
+
+    # Lines shown before any game event has occurred.
+    WELCOME_MESSAGE = [
+        "MIMIC DICE",
+        "PRESS SPACE TO ROLL.",
+    ]
+
+    # Per-term colors applied inline in any log line. Longer terms take
+    # priority at match time so substrings of longer terms can't win.
+    WORD_COLORS = {
+        "MIMIC":    ColorSettings.LOG_HIGHLIGHT_MIMIC,
+        "MIMICS":   ColorSettings.LOG_HIGHLIGHT_MIMIC,
+        "TREASURE": ColorSettings.LOG_HIGHLIGHT_TREASURE,
+        "EMPTY":    ColorSettings.LOG_HIGHLIGHT_EMPTY,
+        "BUST":     ColorSettings.LOG_HIGHLIGHT_MIMIC,
+        "BANK":     ColorSettings.LOG_HIGHLIGHT_TREASURE,
+        "BANKED":   ColorSettings.LOG_HIGHLIGHT_TREASURE,
+        "WIN":      ColorSettings.LOG_HIGHLIGHT_TREASURE,
+        "WINS":     ColorSettings.LOG_HIGHLIGHT_TREASURE,
+    }
+
+
+class GameOverSettings:
+    """Overlay alpha, timing, and prompt copy for the GAME OVER screen."""
+
+    # Per-pixel alpha applied to the dim overlay drawn over the gameplay
+    # area when the game ends. 180 / 255 leaves the dice tray faintly
+    # visible behind the title, which keeps continuity from the run.
+    OVERLAY_ALPHA = 180
+
+    # The screen ignores input for this many milliseconds after appearing
+    # so a button held down at the moment of game-over doesn't immediately
+    # restart the next game.
+    CONTINUE_DELAY_MS = 650
+
+    # Fade-in duration for the "PRESS A OR ENTER TO PLAY AGAIN" prompt,
+    # measured from when input becomes accepted.
+    PROMPT_FADE_MS = 750
+
+    # Vertical pixel offset from the centered title to the prompt below it.
+    PROMPT_OFFSET_Y = 42
+
+    # Vertical spacing between rows in the final-scores list (when shown).
+    SCORE_LINE_HEIGHT = 22
+
+    # Pixels of empty space between the GAME OVER title and the first
+    # final-scores row.
+    SCORE_TOP_GAP = 28
+
+    # Single line of copy shown under the title. UI text is ALL CAPS.
+    CONTINUE_PROMPT = "PRESS A OR ENTER TO PLAY AGAIN"
+
+
 class DiceSettings:
     """Visuals, tray geometry, and roll physics for the animated dice.
 
@@ -124,9 +234,10 @@ class DiceSettings:
     COUNT = 3                      # How many dice are rolled at once.
     SCALE = 2                      # Pixel-art scale factor for every die sprite.
 
-    # ---- Tray placement (top-left anchored, in window pixels) ----
-    TRAY_PADDING = (32, 32)        # Empty space left/top of the tray.
-    TRAY_SIZE = (480, 360)         # Tray width/height in window pixels.
+    # ---- Tray placement ----
+    # Tray placement and size are now derived from `LayoutSettings` at runtime
+    # (see `ui.layout.tray_region_rect`) so the tray, stats panel, and message
+    # log share one source of truth and resize together.
     TRAY_CORNER_RADIUS = 8         # Border-corner curvature in pixels (0 = sharp).
     TRAY_INNER_MARGIN = 4          # Physics inset from the visible border.
 

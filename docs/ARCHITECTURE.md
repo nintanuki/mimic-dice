@@ -82,7 +82,7 @@ The tray is a UI region. It owns:
 - `inner_rect(margin)` — the same rect shrunk by `margin` pixels per side. This is what physics uses, so a die's half-width fits **inside** the visible border rather than overlapping it.
 - `draw(surface)` — fills the felt and outlines the rounded border.
 
-We deliberately use a tray, not a cup. A cup is hard to depict and animate convincingly in 2D. In real life most players shake the cup and dump dice into a tray anyway, so the tray model matches the physical experience without the animation cost.
+We deliberately use a tray, not a visualized bag. The bag is a data structure — it holds the remaining dice — but it is never drawn. In real life most players shake the bag (or cup) and dump dice into a tray; the tray model matches the physical experience without the animation cost.
 
 ### 3.3 `AnimatedDie` — one die's physics + animation
 
@@ -111,7 +111,11 @@ The physics model is intentionally simple but frame-rate independent.
 
 ### 3.4 Current placeholder behavior
 
-Right now the sheet contains a generic 1–6 numbered six-sided die. Mimic Dice needs three colored dice with brain/runner/shotgun faces in different distributions. **Phase 1** of the roadmap covers temporarily mapping the 1–6 numbers to Zombie Dice outcomes so the rules engine has something real to work with; **Phase 3** covers replacing the art entirely.
+Right now the sheet contains a generic 1–6 numbered six-sided die. Mimic Dice ultimately needs three colored dice with treasure/empty-chest/mimic faces in different distributions. The roadmap takes that in two steps:
+
+- **Phase 0** introduces an `Outcome` layer (`MIMIC` / `EMPTY` / `TREASURE`) and a `face_to_outcome` map (1-2 → MIMIC, 3-4 → EMPTY, 5-6 → TREASURE). All dice in Phase 0 are mechanically identical (equal 1/3 odds for each outcome), but each rolled die is rendered using the sprite-sheet row that matches its outcome — row 3 (red) for MIMIC, row 2 (grey) for EMPTY, row 9 (green) for TREASURE — so the player can read the outcome at a glance without changing the underlying probabilities. The bag (13 dice) and re-roll mechanics are implemented during Phase 0 even though every die is statistically identical, so Phase 1 only needs to change the contents of the bag, not the engine that uses it.
+- **Phase 1** replaces Phase 0's equal-odds bag with the real Zombie Dice distribution (6 green / 4 yellow / 3 red dice with per-color face distributions) and reintroduces Lizzie, who was held out of Phase 0 because her strategy depends on red-dice counts.
+- **Phase 3** replaces the placeholder number art entirely with treasure/empty-chest/mimic icons.
 
 ---
 

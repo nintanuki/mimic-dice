@@ -1,34 +1,66 @@
 # Mimic Dice — Roadmap
 
-This file tracks work in **phases**. Each phase has a clear goal; finish a phase before moving on. Items inside a phase can move between phases as priorities shift, but Phase 1 is intentionally minimal — *get to a playable game first, then refine.*
+This file tracks work in **phases**. Each phase has a clear goal; finish a phase before moving on. Items inside a phase can move between phases as priorities shift, but Phase 0 is intentionally minimal — *get to a playable game first, then refine.*
 
 ---
 
-## Phase 1 — Playable Prototype
+## Phase 0 — Bare-Bones Playable
 
-**Goal:** A complete, end-to-end game of Mimic Dice that follows the official Zombie Dice rules using the existing 1–6 number-faced dice as placeholders. One human player versus AI opponents. Ugly is fine; it must be playable from start to win screen.
+**Goal:** A complete, end-to-end game of Mimic Dice with simplified dice (all dice are mechanically identical, equal 1/3-1/3-1/3 odds) so the engine, UI, AI integration, and game loop all land before any color-distribution work begins. One human plus 3 random AI bots, full Zombie Dice rules otherwise, 1-6 number-faced dice rendered in red/grey/green by outcome. Lizzie sits out this phase because she needs real color variety to make decisions; she returns unchanged in Phase 1.
 
 ### Rules engine
-- [ ] Build the 13-die cup with the correct color distribution (6 green, 4 yellow, 3 red).
-- [ ] Draw 3 dice per roll; replenish drawn-from-runners back to 3 each subsequent roll.
-- [ ] Map each color's face distribution to roll outcomes (brain / runner / shotgun).
-- [ ] Track per-turn brains and per-turn shotguns; bust at 3 shotguns.
-- [ ] Bank action commits per-turn brains to the player's score.
-- [ ] Win condition: first to 13 brains triggers a final round; highest score after the round wins.
+- [ ] Add `Outcome` constants (MIMIC / EMPTY / TREASURE) and a `face_to_outcome(face)` map: faces 1-2 → MIMIC, 3-4 → EMPTY, 5-6 → TREASURE.
+- [ ] Model a 13-die identical bag; draw 3 dice per roll; hold over empty-chest dice from the previous roll (they take their fresh outcome on the next roll) and refill from the bag to bring the hand back to 3.
+- [ ] When the bag empties mid-turn, recycle set-aside treasure chests back into the bag (not mimics).
+- [ ] Track per-turn treasure and per-turn mimics; bust at 3 mimics; bank action commits per-turn treasure to score.
+- [ ] Win condition: first to 13 treasure triggers a final round; highest score after the round wins.
 
 ### Visual placeholder mapping
-- [ ] Temporarily map the existing 6-sided number dice to Zombie Dice outcomes (e.g. 1–3 = brain, 4 = shotgun, 5–6 = runner per the green-die distribution) so the engine has something to render against. Document the mapping in `ARCHITECTURE.md` so it is obvious that this is placeholder behavior.
+- [ ] Render each rolled die using the sprite sheet row that matches its outcome: MIMIC → row 3 (red), EMPTY → row 2 (grey), TREASURE → row 9 (green). All dice still have equal odds; the color is purely a readability cue.
 
 ### AI opponents
-- [ ] Port the bots in `legacy/zombie-dice-bots/` into the live game so 1 human can play against 1–3 AI.
-- [ ] Add a turn-flow controller that alternates between human and AI players and waits on AI "thinking" time so rolls are visible.
+- [ ] Copy the bots from `legacy/zombie-dice-bots/` into `systems/bots/` and adapt them to drive our engine (no edits to `legacy/`).
+- [ ] Provide a thin adapter that gives each bot the same `roll()` dict shape it expects (`brains`, `shotgun`, `footsteps`, `rolls`), backed by our bag and outcomes.
+- [ ] Exclude Lizzie for Phase 0 (her strategy reads red-dice count, which is meaningless without real color variation).
+- [ ] Bot pacing delay so the player can see each AI roll resolve.
+
+### UI windows
+- [ ] Tall thin **stats panel** on the right: player names, scores, current-turn indicator, timer/round counter, bot difficulty icons (`aku.png` skulls for difficulty tier, `lau.png` flower for tutorial).
+- [ ] Wide **message log** on the bottom with a typewriter reveal ported from Dungeon Digger.
+- [ ] Wire log to game events: rolls, MIMIC, BUST, BANK, turn changes, WIN.
+
+### Game flow
+- [ ] New-game setup picks the human plus 3 random non-Lizzie bots. Lineup re-rolls each new game.
+- [ ] Game loop: turn rotation, roll/bank inputs for the human, automatic turns for bots.
+- [ ] GAME OVER screen showing final scores; press A or ENTER to start a fresh random game. No other prompts.
+
+### Smoke test + doc updates
+- [ ] Walk through a full game start → win/lose → restart. Note anything off here.
+- [ ] Update `ARCHITECTURE.md` with new sections (rules engine, AI adapter, UI panels, message log).
+- [ ] Append `CHANGELOG.md` entries per the doc-maintenance rule.
+
+---
+
+## Phase 1 — Color-Distribution Dice
+
+**Goal:** Replace the 1/3-1/3-1/3 placeholder bag from Phase 0 with the real Zombie Dice bag: 13 dice across three color tiers with different face distributions, and reintroduce Lizzie.
+
+### Rules engine
+- [ ] Build the 13-die bag with the correct color distribution (6 green, 4 yellow, 3 red).
+- [ ] Draw 3 dice per roll; replenish drawn-from-empty-chest holdovers back to 3 each subsequent roll, drawing fresh dice from the bag.
+- [ ] Map each color's face distribution to roll outcomes (treasure / empty chest / mimic).
+- [ ] Track per-turn treasure and per-turn mimics; bust at 3 mimics.
+- [ ] Bank action commits per-turn treasure to the player's score.
+- [ ] Win condition: first to 13 treasure triggers a final round; highest score after the round wins.
+
+### Visual placeholder mapping
+- [ ] Temporarily map the existing 6-sided number dice to Zombie Dice outcomes per-color so the engine has something to render against. Document the mapping in `ARCHITECTURE.md` so it is obvious that this is placeholder behavior. (Phase 0 already covers the equal-odds version; this phase replaces it with real color-distribution odds.)
+
+### AI opponents
+- [ ] Reintroduce Lizzie (she was sat out for Phase 0 because her strategy depends on red-dice counts).
 
 ### Minimum UI
-- [ ] Display whose turn it is.
-- [ ] Display each player's banked score.
-- [ ] Display this turn's running brains and shotguns.
-- [ ] Roll / Bank prompts.
-- [ ] Win screen with restart prompt.
+- [ ] Display this turn's running treasure and mimics (extends the stats panel built in Phase 0).
 
 ### Input
 - [ ] Bind Roll and Bank to keyboard and controller.
@@ -41,9 +73,9 @@ This file tracks work in **phases**. Each phase has a clear goal; finish a phase
 **Goal:** Up to 4 mixed human / AI players with proper turn order, lobby, and scoreboard.
 
 - [ ] 1–4 player support. Decide hot-seat vs. shared-controller (see Open Questions).
-- [ ] Pre-game lobby: pick number of players, assign each slot human or AI, pick AI personality from `legacy/zombie-dice-bots/`.
+- [ ] Pre-game lobby: pick number of players, assign each slot human or AI, pick AI personality from the in-game bot roster.
 - [ ] Persistent scoreboard widget visible during play.
-- [ ] Final-round logic when a player reaches 13 brains (every other player gets one more turn).
+- [ ] Final-round logic when a player reaches 13 treasure (every other player gets one more turn).
 - [ ] Tie-break rule (rolls until tied players differ, per Zombie Dice convention).
 
 ---
@@ -52,7 +84,7 @@ This file tracks work in **phases**. Each phase has a clear goal; finish a phase
 
 **Goal:** Replace placeholder visuals with the treasure / mimic theme.
 
-- [ ] Final dice art: treasure chest (brain), empty chest (runner), mimic (shotgun) on green/yellow/red dice bodies.
+- [ ] Final dice art: treasure chest, empty chest, mimic icons on green/yellow/red dice bodies.
 - [ ] Update `assets/graphics/sprites/six_sided_die.png` (or replace with new sheets) and refresh sheet-layout constants in `AssetPaths`.
 - [ ] Tray reskin: dungeon table / treasure-room aesthetic.
 - [ ] Background art and per-player avatar / character portraits for AI personalities.
@@ -65,7 +97,7 @@ This file tracks work in **phases**. Each phase has a clear goal; finish a phase
 **Goal:** Make the game feel alive.
 
 - [ ] Dice impact / tumble / settle SFX.
-- [ ] Mimic snarl on shotgun outcome; chest creak on brain.
+- [ ] Mimic snarl on mimic outcome; chest creak on treasure.
 - [ ] Bank / bust stings.
 - [ ] Background music tracks (lobby, gameplay, win).
 - [ ] Screen shake on bust.
@@ -100,9 +132,10 @@ This file tracks work in **phases**. Each phase has a clear goal; finish a phase
 ## Open Questions / Known Challenges
 
 - **Multi-human input on one cabinet.** Hot-seat (one controller, pass it) vs. multi-controller (each player has their own). Defer until Phase 2.
-- **Drawing animation.** A literal cup is hard to depict; the tray-only model is intentional for this build (mirrors how the physical game is actually played: shake the cup, dump into a tray). Documented in `ARCHITECTURE.md`.
 - **AI pacing.** Bots resolve a turn instantly; we'll need an artificial delay between AI rolls so the player can see what happened.
-- **Re-roll mechanics.** Runners must persist across rolls within a turn while drawing fresh dice from the cup to bring the count back to 3. The data model for "dice in play this turn" needs to handle that cleanly.
+- **Re-roll mechanics.** Empty-chest dice must persist across rolls within a turn while drawing fresh dice from the bag to bring the count back to 3. The data model for "dice in play this turn" needs to handle that cleanly.
+
+Note: the bag is intentionally not visualized — it is a data structure, not a sprite. Players reach into the bag conceptually each time they choose to roll.
 
 ---
 

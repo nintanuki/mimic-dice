@@ -39,6 +39,13 @@ If a question is asked about *why* code was written a certain way, that is a req
 - Keep middlemen minimal: if A calls B and B only calls C, have A call C directly.
 - All constants live in `settings.py`. **No magic numbers anywhere else.** When adding a constant, include a comment explaining its units and effect.
 
+## The `legacy/` folder is read-only
+
+- Treat everything under `legacy/` as reference material, not source.
+- Do not edit, rename, move, or delete any file in `legacy/`.
+- Do not import directly from `legacy/` in shipped code. To reuse legacy logic, copy the relevant code into the appropriate `systems/`, `ui/`, or `utils/` module under a new name and adapt it there.
+- `legacy/zombie-dice-bots/` was originally paired with a separate tournament-runner module that is intentionally not part of this game. Difficulty tiers were measured from that simulation once and recorded in `docs/AI_OPPONENTS.md`; no further simulations are required.
+
 ## File and function layout
 
 - Inside a class, group functions by role (setup, actions, physics, render, etc.).

@@ -12,13 +12,14 @@ The tray is purely a UI region. It exposes:
 import pygame
 
 from settings import ColorSettings, DiceSettings, ScreenSettings
+from ui import layout
 
 
 class DiceTray:
     """Bounded play area drawn as a rounded, filled rectangle."""
 
     def __init__(self, window_size: tuple[int, int]):
-        """Create the tray rect anchored to the window using DiceSettings.
+        """Create the tray rect from the current layout.
 
         Args:
             window_size: Current (width, height) of the display surface.
@@ -33,20 +34,15 @@ class DiceTray:
     def resize(self, window_size: tuple[int, int]) -> None:
         """Recompute the tray rect when the window size changes.
 
-        The tray anchors to the top-left of the window with configurable
-        padding and uses a configurable size. It is clamped so it never
-        spills outside the window.
+        The tray occupies the top-left region returned by `ui.layout`, which
+        subtracts the right-hand stats panel and bottom message log from the
+        window so all three regions share one source of truth and stay
+        responsive to `VIDEORESIZE`.
 
         Args:
             window_size: New (width, height) of the display surface.
         """
-        window_width, window_height = window_size
-        padding_x, padding_y = DiceSettings.TRAY_PADDING
-        max_width = max(0, window_width - padding_x)
-        max_height = max(0, window_height - padding_y)
-        tray_width = min(DiceSettings.TRAY_SIZE[0], max_width)
-        tray_height = min(DiceSettings.TRAY_SIZE[1], max_height)
-        self.rect = pygame.Rect(padding_x, padding_y, tray_width, tray_height)
+        self.rect = layout.tray_region_rect(window_size)
 
     def inner_rect(self, margin: int) -> pygame.Rect:
         """Return the rect shrunk by `margin` pixels on every side.

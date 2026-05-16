@@ -4,8 +4,16 @@ import pygame
 import sys
 
 from systems.dice_roller import DiceRoller
+from ui import layout
+from ui.message_log import MessageLog
 from crt import CRT
-from settings import ScreenSettings, InputSettings, ColorSettings, DebugSettings
+from settings import (
+    ScreenSettings,
+    InputSettings,
+    ColorSettings,
+    DebugSettings,
+    LayoutSettings,
+)
 
 class GameManager:
     """Coordinate game state, flow, rendering phases, and input orchestration."""
@@ -31,6 +39,12 @@ class GameManager:
 
         # -------- Dice --------
         self.dice_roller = DiceRoller(self.screen.get_size())
+
+        # -------- UI panels --------
+        # The frames are drawn from layout-computed rects each frame; the
+        # message log is constructed here so the typewriter machinery is
+        # available once gameplay events start firing in a later pass.
+        self.message_log = MessageLog()
 
         # -------- Post-processing --------
         self.full_screen = False
@@ -140,12 +154,39 @@ class GameManager:
         dt = self.clock.get_time() / 1000.0
         self.dice_roller.update(dt)
 
+    def _draw_panel_frames(self) -> None:
+        """Draw the empty stats panel and message log frames.
+
+        Each panel is a filled rounded rectangle with an outlined border.
+        Contents (player rows, log lines, etc.) land in a later pass; for
+        now only the frames render so we can verify the layout.
+        """
+        window_size = self.screen.get_size()
+        stats_rect = layout.stats_panel_rect(window_size)
+        log_rect = layout.message_log_rect(window_size)
+
+        for panel_rect in (stats_rect, log_rect):
+            pygame.draw.rect(
+                self.screen,
+                ColorSettings.PANEL_FILL_COLOR,
+                panel_rect,
+                border_radius=LayoutSettings.PANEL_BORDER_RADIUS,
+            )
+            pygame.draw.rect(
+                self.screen,
+                ColorSettings.PANEL_BORDER_COLOR,
+                panel_rect,
+                width=LayoutSettings.PANEL_BORDER_WIDTH,
+                border_radius=LayoutSettings.PANEL_BORDER_RADIUS,
+            )
+
     def _render_frame(self) -> None:
-        """Composite one frame: background, gameplay, then CRT overlay."""
+        """Composite one frame: background, gameplay, UI frames, then CRT overlay."""
         self.screen.fill(ColorSettings.BG_COLOR)
 
         # Draw the dice BEFORE the CRT overlay so scanlines sit on top.
         self.dice_roller.draw(self.screen)
+        self._draw_panel_frames()
 
         # Apply CRT pass after world/UI rendering.
         if not self.full_screen and not DebugSettings.DISABLE_CRT:
