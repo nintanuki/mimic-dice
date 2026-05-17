@@ -7,7 +7,7 @@ The panel reads three things every frame:
     * `active_player_index`  - whose turn is currently up; that row gets a
                                highlight and the held-dice section shows
                                their this-turn pile.
-    * `set_aside_faces` +
+    * `set_aside_colors` +
       `set_aside_outcomes`   - the MIMIC + TREASURE dice the active player
                                has accumulated so far this turn. EMPTY dice
                                are on the felt (held over) and are
@@ -19,11 +19,12 @@ to coordinate frame ordering.
 
 The held-dice section shows two clearly-labelled rows so a glance tells
 the player both *how close to busting* they are and *how much treasure
-they'd lock in if they banked right now*. Banked treasure persists in
-each player's `score` (rendered in the roster); the held-dice thumbs
-reset on the next `start_turn()` (bank or bust), matching the player's
-mental model of "carry your earned score forward, but the dice you set
-aside this turn reset on every new turn".
+they'd lock in if they banked right now*. Each thumb is rendered from the
+per-(color, outcome) settled sprite map shared with `DiceRoller`, so a
+banked green TREASURE shows the green chest, a banked red MIMIC shows the
+red mimic, and so on. Banked treasure persists in each player's `score`
+(rendered in the roster); the held-dice thumbs reset on the next
+`start_turn()` (bank or bust).
 """
 
 from dataclasses import dataclass
@@ -36,7 +37,7 @@ from settings import (
     LayoutSettings,
     StatsPanelSettings,
 )
-from systems.outcomes import Outcome
+from systems.outcomes import DieColor, Outcome
 
 
 @dataclass(frozen=True)
@@ -52,23 +53,26 @@ class StatsPanel:
 
     def __init__(
         self,
-        outcome_sprites: dict[Outcome, list[pygame.Surface]],
+        settled_sprites: dict[tuple[DieColor, Outcome], pygame.Surface],
     ):
         """Cache references to the die sprite frames and panel fonts.
 
         Args:
-            outcome_sprites: Mapping from each Outcome to its list of
-                settled-face frames. The panel reads from this so the
-                held-dice thumbs share the same artwork as the tray dice.
+            settled_sprites: Map from (color, outcome) to the single settled
+                sprite for that combination. The panel reads from this so
+                the held-dice thumbs share the same artwork as the tray
+                dice — a green TREASURE thumb is the same sprite the felt
+                shows when a green die lands TREASURE.
         """
-        self.outcome_sprites = outcome_sprites
+        self.settled_sprites = settled_sprites
         self.name_font = pygame.font.Font(FontSettings.FONT, FontSettings.HUD_SIZE)
         self.score_font = pygame.font.Font(FontSettings.FONT, FontSettings.SCORE_SIZE)
         self.label_font = pygame.font.Font(FontSettings.FONT, FontSettings.HUD_SIZE)
 
-        # Derive the rendered die size once; all rows share it.
-        first_row = next(iter(outcome_sprites.values()))
-        self.die_size = first_row[0].get_width()
+        # Derive the rendered die size once; every settled sprite is the
+        # same source tile size scaled by `DiceSettings.SCALE`.
+        first_sprite = next(iter(settled_sprites.values()))
+        self.die_size = first_sprite.get_width()
 
     # -------------------------
     # RENDER
@@ -154,7 +158,7 @@ class StatsPanel:
         surface: pygame.Surface,
         rect: pygame.Rect,
         label: str,
-        faces: list[int],
+        colors: list[DieColor],
         outcome: Outcome,
         y: int,
     ) -> int:
@@ -166,13 +170,15 @@ class StatsPanel:
             surface: Target surface.
             rect:    Panel rect; used for left/right inset.
             label:   ALL-CAPS section heading drawn above the thumbs.
-            faces:   Face values (1–6) of each held die in display order.
-            outcome: Outcome whose sprite row supplies the thumb artwork.
+            colors:  Die color of each held entry, in display order. Each
+                     thumb is the settled sprite for `(color, outcome)`.
+            outcome: Outcome whose row of thumbs is being drawn (MIMIC or
+                     TREASURE). The label color matches this outcome.
             y:       Top y where the label starts.
 
         Returns:
             Y coordinate just below the last drawn thumb (or the label,
-            if `faces` is empty).
+            if `colors` is empty).
         """
         left = rect.left + StatsPanelSettings.TEXT_PADDING
         right = rect.right - StatsPanelSettings.TEXT_PADDING
@@ -187,7 +193,7 @@ class StatsPanel:
         y = self._draw_text(surface, self.label_font, label, left, y, label_color)
         y += StatsPanelSettings.HELD_DICE_LABEL_GAP
 
-        if not faces:
+        if not colors:
             # Render an em-dash so an empty row still occupies vertical
             # space and the section ordering stays stable as dice arrive.
             return self._draw_text(
@@ -195,16 +201,12 @@ class StatsPanel:
                 ColorSettings.STATS_TEXT_COLOR,
             )
 
-        sprites = self.outcome_sprites[outcome]
         spacing = StatsPanelSettings.HELD_DICE_SPACING
         row_gap = StatsPanelSettings.HELD_DICE_ROW_GAP
         cursor_x = left
         row_y = y
-        for face in faces:
-            # Clamp to a safe column index; out-of-range faces fall back to
-            # the first column rather than crashing.
-            column = (face - 1) if 1 <= face <= len(sprites) else 0
-            sprite = sprites[column]
+        for color in colors:
+            sprite = self.settled_sprites[(color, outcome)]
             if cursor_x + sprite.get_width() > right:
                 cursor_x = left
                 row_y += self.die_size + row_gap
@@ -214,18 +216,18 @@ class StatsPanel:
 
     def _split_set_aside_by_outcome(
         self,
-        faces: list[int],
+        colors: list[DieColor],
         outcomes: list[Outcome],
-    ) -> tuple[list[int], list[int]]:
-        """Partition the set-aside faces into (treasure_faces, mimic_faces)."""
-        treasure_faces: list[int] = []
-        mimic_faces: list[int] = []
-        for face, outcome in zip(faces, outcomes):
+    ) -> tuple[list[DieColor], list[DieColor]]:
+        """Partition the set-aside colors into (treasure_colors, mimic_colors)."""
+        treasure_colors: list[DieColor] = []
+        mimic_colors: list[DieColor] = []
+        for color, outcome in zip(colors, outcomes):
             if outcome == Outcome.TREASURE:
-                treasure_faces.append(face)
+                treasure_colors.append(color)
             elif outcome == Outcome.MIMIC:
-                mimic_faces.append(face)
-        return treasure_faces, mimic_faces
+                mimic_colors.append(color)
+        return treasure_colors, mimic_colors
 
     def draw(
         self,
@@ -233,7 +235,7 @@ class StatsPanel:
         rect: pygame.Rect,
         players: list[PlayerView],
         active_player_index: int,
-        set_aside_faces: list[int],
+        set_aside_colors: list[DieColor],
         set_aside_outcomes: list[Outcome],
     ) -> None:
         """Paint the panel: frame, roster, held-dice rows for the active player.
@@ -244,8 +246,8 @@ class StatsPanel:
             players:             All seats in turn order (human + bots).
             active_player_index: Index into `players` of the player who is
                                  currently rolling.
-            set_aside_faces:     Face values set aside this turn (parallel
-                                 to `set_aside_outcomes`).
+            set_aside_colors:    Colors set aside this turn (parallel to
+                                 `set_aside_outcomes`).
             set_aside_outcomes:  Outcomes set aside this turn (MIMIC + TREASURE).
         """
         self._draw_frame(surface, rect)
@@ -258,14 +260,14 @@ class StatsPanel:
         # Held dice (active player, this turn only). Treasure first because
         # it's the "good" pile the player is trying to grow; mimics below
         # so the bust risk reads as the cost of pushing your luck.
-        treasure_faces, mimic_faces = self._split_set_aside_by_outcome(
-            set_aside_faces, set_aside_outcomes,
+        treasure_colors, mimic_colors = self._split_set_aside_by_outcome(
+            set_aside_colors, set_aside_outcomes,
         )
         y += StatsPanelSettings.SECTION_GAP
         y = self._draw_held_row(
-            surface, rect, "TREASURE", treasure_faces, Outcome.TREASURE, y,
+            surface, rect, "TREASURE", treasure_colors, Outcome.TREASURE, y,
         )
         y += StatsPanelSettings.SECTION_GAP
         self._draw_held_row(
-            surface, rect, "MIMICS", mimic_faces, Outcome.MIMIC, y,
+            surface, rect, "MIMICS", mimic_colors, Outcome.MIMIC, y,
         )

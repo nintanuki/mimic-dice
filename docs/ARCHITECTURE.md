@@ -109,22 +109,28 @@ The physics model is intentionally simple but frame-rate independent.
 
 **Settle.** When `velocity.length()` drops below `SETTLE_SPEED`, the die stops, velocity is zeroed, and a random `face_index` is picked from the face row. **The animation does not determine the outcome** — the outcome is decided at settle time. That's an important design choice for the future: when we wire up the real rules engine, the engine will pre-decide each die's outcome and we'll just inject that into `face_index` at settle, instead of `random.randrange`.
 
-### 3.4 Current placeholder behavior
+### 3.4 Per-color dice (current state)
 
-Right now the sheet contains a generic 1–6 numbered six-sided die. Mimic Dice ultimately needs three colored dice with treasure/empty-chest/mimic faces in different distributions. The roadmap takes that in two steps:
+The dice subsystem now ships the real Zombie Dice composition: 13 dice across three color tiers — 6 GREEN, 4 PURPLE, 3 RED. (Purple stands in for Zombie Dice's yellow body color; the project art kit ships with both purple and white middle-tier sprites, and the design chose purple for the medium tier.) Each die belongs to a `DieColor` and resolves its outcome through the per-color face distribution defined in `systems/outcomes.py::FACE_DISTRIBUTIONS`:
 
-- **Phase 0** introduces an `Outcome` layer (`MIMIC` / `EMPTY` / `TREASURE`) and a `face_to_outcome` map (1-2 → MIMIC, 3-4 → EMPTY, 5-6 → TREASURE). All dice in Phase 0 are mechanically identical (equal 1/3 odds for each outcome), but each rolled die is rendered using the sprite-sheet row that matches its outcome — row 3 (red) for MIMIC, row 2 (grey) for EMPTY, row 9 (green) for TREASURE — so the player can read the outcome at a glance without changing the underlying probabilities. The bag (13 dice) and re-roll mechanics are implemented during Phase 0 even though every die is statistically identical, so Phase 1 only needs to change the contents of the bag, not the engine that uses it.
-- **Phase 1** replaces Phase 0's equal-odds bag with the real Zombie Dice distribution (6 green / 4 yellow / 3 red dice with per-color face distributions) and reintroduces Lizzie, who was held out of Phase 0 because her strategy depends on red-dice counts.
-- **Phase 3** replaces the placeholder number art entirely with treasure/empty-chest/mimic icons.
+| Color  | Count | TREASURE | EMPTY | MIMIC |
+|--------|-------|----------|-------|-------|
+| GREEN  | 6     | 3        | 2     | 1     |
+| PURPLE | 4     | 2        | 2     | 2     |
+| RED    | 3     | 1        | 2     | 3     |
 
-### 3.5 The Outcome layer
+Each rolled die settles on the per-(color, outcome) sprite loaded from a standalone PNG — `assets/graphics/sprites/{treasure,empty_chest,mimic}_{green,purple,red}.png`. The tumble row stays on the original `six_sided_die.png` so every color shares the same in-air silhouette; the per-color art only resolves at settle time, which keeps memory low and emphasises the outcome reveal.
 
-`systems/outcomes.py` defines the seam between the dice subsystem and everything downstream of it. It exposes two things:
+### 3.5 The Outcome + DieColor layer
 
-- `Outcome` — an `Enum` with three members, `MIMIC`, `EMPTY`, and `TREASURE`. Every rules-engine decision (bust, bank, hold-over, score) reads outcomes through this type, not raw face indexes.
-- `face_to_outcome(face)` — the Phase 0 placeholder mapping from a 1-based face (1–6) to an `Outcome`, using thresholds from `settings.OutcomeSettings`.
+`systems/outcomes.py` defines the seam between the dice subsystem and everything downstream of it. It exposes:
 
-This split is deliberate. The dice subsystem still settles on an integer face (and will keep doing so), but the rules engine, the message log, the AI bots, and the future Lizzie strategy all talk in outcomes. When Phase 1 lands, the seam stays: `Outcome` is unchanged, and `face_to_outcome` is replaced by a per-color distribution lookup that returns the same type. Nothing above this seam should need to change for that swap.
+- `DieColor` — an `Enum` with members `GREEN`, `PURPLE`, `RED`. The string values (`"green"`, `"purple"`, `"red"`) are used directly inside asset paths.
+- `Outcome` — an `Enum` with members `MIMIC`, `EMPTY`, `TREASURE`. Every rules-engine decision (bust, bank, hold-over, score) reads outcomes through this type.
+- `FACE_DISTRIBUTIONS` — `dict[DieColor, tuple[Outcome, ...]]` of length-6 tuples, one per color. The engine resolves a roll by picking a uniformly-random index in [0, 5] from the tuple keyed by the die's color, which makes the per-color difficulty curve a one-line edit.
+- `roll_color(color)` — convenience helper that does the random `choice` for callers (used by `TurnEngine.roll`).
+
+These four pieces live together (instead of split between `settings.py` and `outcomes.py`) so the dict literal can reference the enums without a circular import. Per-color *counts* (how many of each color in the bag) still live in `BagSettings.DICE_PER_COLOR`, which is where it is natural to tune them alongside `TOTAL_DICE`.
 
 ---
 
@@ -213,11 +219,12 @@ systems/turn_engine.py — per-turn state: hold-overs, bust, bank, win
 
 ### 9.1 `Bag` — the draw pool
 
-`Bag` is a pure integer counter (not a list of individual dice) because Phase 0 dice are mechanically identical. Its interface:
+`Bag` is now a list of `DieColor` values (not an integer counter) because dice are no longer mechanically identical — every die has a color, and that color drives both the outcome distribution and the settled sprite. Its interface:
 
-- `reset()` — refills to `BagSettings.TOTAL_DICE` (13). Called once per turn by `TurnEngine.start_turn()`.
-- `draw(n)` — removes up to *n* dice from the pool and returns a list of integer **face values** (1–6). The caller (`TurnEngine`) runs `face_to_outcome` to classify each face. Returning faces — not outcomes — is what lets the renderer show the same pip count the engine rolled, so a die showing "1" is always a MIMIC and a die showing "6" is always a TREASURE.
-- `recycle(set_aside)` — puts TREASURE-outcome dice from the set-aside pile back into the pool. Called automatically by `TurnEngine.roll()` when the bag cannot supply the needed dice mid-turn.
+- `reset()` — refills to `BagSettings.DICE_PER_COLOR` (6 GREEN + 4 PURPLE + 3 RED = 13) and shuffles. Called once per turn by `TurnEngine.start_turn()`.
+- `draw(n)` — removes up to *n* dice from the pool and returns their colors. The caller (`TurnEngine`) runs `roll_color` on each to resolve the outcome.
+- `recycle(set_aside_colors, set_aside_outcomes)` — puts TREASURE-outcome dice from the set-aside pile back into the pool, preserving their colors. Called automatically by `TurnEngine.roll()` when the bag cannot supply the needed dice mid-turn.
+- `count_color(color)` — returns how many dice of `color` remain. Used by AI strategies (Lizzie in particular) to gauge bust risk hiding inside the bag.
 
 The bag is never drawn. It is a data structure — players reach into it conceptually each time they choose to roll.
 
@@ -226,41 +233,40 @@ The bag is never drawn. It is a data structure — players reach into it concept
 `TurnEngine` manages one player's turn from first draw to bust or bank. Key state:
 
 - `turn_mimics` / `turn_treasures` — running totals for this turn.
-- `held_over` — count of EMPTY dice in hand that carry into the next roll (not returned to the bag).
-- `set_aside_faces` / `set_aside_outcomes` — parallel lists of every MIMIC + TREASURE die set aside so far this turn (faces first, outcomes second). `Bag.recycle()` reads outcomes for the mid-turn refill, and the stats panel reads both for the held-dice thumbs.
+- `held_over_colors` — list of `DieColor` for EMPTY dice in hand that carry into the next roll (not returned to the bag). Held-over dice keep their color when re-rolled because a die's color is a property of the *die*, not of the roll; only the face outcome is fresh on each push.
+- `set_aside_colors` / `set_aside_outcomes` — parallel lists of every MIMIC + TREASURE die set aside so far this turn. `Bag.recycle()` reads both for the mid-turn TREASURE refill, and the stats panel reads them for the held-dice thumbs.
 - `status` — a `TurnStatus` enum: `ROLLING`, `BUST`, or `BANKED`.
+- `red_dice_remaining()` — derived helper: `bag.count_color(RED) + held_over_colors.count(RED)`. The Lizzie bot reads this to decide whether to push through "all the reds are already out, so the bust risk has been spent."
 
 `roll()` flow:
 
-1. Compute `dice_needed = DICE_PER_ROLL − held_over`.
-2. If `bag.count < dice_needed`, call `bag.recycle(self.set_aside_outcomes)` first.
-3. Re-roll held-over EMPTY dice (fresh face values, classified via `face_to_outcome`).
-4. Draw `dice_needed` fresh face values from the bag.
-5. Classify all faces into outcomes: MIMIC → increment counter + append face/outcome to set-aside; TREASURE → same; EMPTY → increment `held_over`.
+1. Compute `dice_needed = DICE_PER_ROLL − held_over` (length of `held_over_colors`).
+2. If `bag.count < dice_needed`, call `bag.recycle(self.set_aside_colors, self.set_aside_outcomes)` first.
+3. Collect colors: `all_colors = held_over_colors + bag.draw(dice_needed)` (held-overs keep their color).
+4. Resolve outcomes: `all_outcomes = [roll_color(color) for color in all_colors]`.
+5. Classify into set-aside / held / mimic-count: MIMIC → increment counter + append color/outcome to set-aside; TREASURE → same; EMPTY → append color to new `held_over_colors`.
 6. Check bust: if `turn_mimics >= BUST_THRESHOLD`, set `status = BUST`.
-7. Return a `RollResult` dataclass with parallel `faces` + `outcomes` lists and all running totals.
+7. Return a `RollResult` dataclass with parallel `colors` + `outcomes` lists and all running totals.
 
 `bank()` commits `turn_treasures` to the caller's score and sets `status = BANKED`.
 
-### 9.3 Outcome- and face-driven sprite rows + on-felt persistence
+### 9.3 Color- and outcome-driven settle art + on-felt persistence
 
-`TurnEngine.roll()` returns a `RollResult` whose `faces` and `outcomes` are parallel lists ordered so that held-over dice come first and freshly-drawn dice follow. `GameManager._do_roll()` calls `dice_roller.roll_with_results(faces, outcomes)`, which re-throws the felt's current held-over EMPTY dice with the leading entries of the lists and **appends new `AnimatedDie` instances** for any remaining (face, outcome) pairs. Dice that settled as MIMIC or TREASURE on a previous roll are left alone — they stay on the felt as the player's set-aside pile until `clear_for_new_turn()` is called on bank or bust. This mirrors physical Zombie Dice: brains/shotguns pile up on the table; footsteps are the only thing you re-roll.
+`TurnEngine.roll()` returns a `RollResult` whose `colors` and `outcomes` are parallel lists ordered so that held-over dice come first and freshly-drawn dice follow. `GameManager._do_roll()` calls `dice_roller.roll_with_results(colors, outcomes)`, which re-throws the felt's current held-over EMPTY dice with the leading entries of the lists and **appends new `AnimatedDie` instances** for any remaining (color, outcome) pairs. Dice that settled as MIMIC or TREASURE on a previous roll are left alone — they stay on the felt as the player's set-aside pile until `clear_for_new_turn()` is called on bank or bust. This mirrors physical Zombie Dice: brains/shotguns pile up on the table; footsteps are the only thing you re-roll.
 
-When a die settles, `AnimatedDie._settle()` picks the sprite from `outcome_sprites[pending_outcome][pending_face - 1]`, so the column choice mirrors the engine's rolled face value — a die showing "1" is always MIMIC, "6" always TREASURE.
+When a die settles, `AnimatedDie._settle()` picks the sprite from `settled_sprites[(pending_color, pending_outcome)]`, which is the per-color chest / mimic / treasure art loaded from a standalone PNG. Mid-tumble frames stay on the original `six_sided_die.png` tumble row (shared across every color) so dice in the air all look the same — the color reveal happens at settle time.
 
-Row colors were verified by pixel-sampling `six_sided_die.png`. The 12-color sheet has no grey row, so EMPTY uses the white row as the most neutral stand-in:
+| Color  | TREASURE sprite                | EMPTY sprite                       | MIMIC sprite                |
+|--------|--------------------------------|------------------------------------|-----------------------------|
+| GREEN  | `treasure_green.png`           | `empty_chest_green.png`            | `mimic_green.png`           |
+| PURPLE | `treasure_purple.png`          | `empty_chest_purple.png`           | `mimic_purple.png`          |
+| RED    | `treasure_red.png`             | `empty_chest_red.png`              | `mimic_red.png`             |
 
-| Outcome  | Sprite row | Color  |
-|----------|-----------|--------|
-| MIMIC    | 2         | Red    |
-| EMPTY    | 0         | White  |
-| TREASURE | 10        | Yellow |
-
-This is Phase 0 placeholder behavior. Phase 3 replaces the numbered faces with treasure/chest/mimic icons; nothing outside `AssetPaths` needs to change for that swap.
+The fourth-color white art is shipped in the folder but is not currently mapped — only GREEN / PURPLE / RED dice live in the bag.
 
 ### 9.4 Stats panel
 
-`ui/stats_panel.py::StatsPanel` paints the right-side column every frame from data passed in by `GameManager`: the **roster** of players (human + bots) with their banked scores, and the **set-aside faces + outcomes** for the currently-active player's turn. The active player's row gets the active marker (`>`) and a highlight color. Treasure thumbs and mimic thumbs render on separate labeled rows; both rows reset on `TurnEngine.start_turn()` (bank or bust), while banked scores persist on each `Player` until the next game. The panel shares the tray's `outcome_sprites` so thumb art always matches what landed in the tray.
+`ui/stats_panel.py::StatsPanel` paints the right-side column every frame from data passed in by `GameManager`: the **roster** of players (human + bots) with their banked scores, and the **set-aside colors + outcomes** for the currently-active player's turn. The active player's row gets the active marker (`>`) and a highlight color. Treasure thumbs and mimic thumbs render on separate labeled rows; both rows reset on `TurnEngine.start_turn()` (bank or bust), while banked scores persist on each `Player` until the next game. The panel shares the tray's `settled_sprites` so thumb art always matches what landed in the tray — a banked green TREASURE shows the green chest, a banked red MIMIC shows the red mimic.
 
 ### 9.5 Win condition (Phase 0 stub)
 
@@ -270,7 +276,7 @@ The first player to bank enough treasure to reach `TurnSettings.WIN_SCORE` (13) 
 
 `GameManager.players` is the ordered seat list: a `Player` per seat with `name`, optional `bot`, and `score`. Phase 0 seats one human plus the names listed in `BotSettings.DEFAULT_BOT_NAMES` (`("ALICE", "BOB")`). `_current_player_index` rotates each time a turn ends.
 
-Bots live in `systems/bots.py`. Each `Bot` is a `(name, strategy)` pair where `strategy(turn_treasures, turn_mimics) -> BotDecision`. The strategy is consulted *after* each roll settles — never mid-tumble — and is shielded from busted states because `TurnEngine` flips status to `BUST` before the bot ever sees the post-roll counts. Phase 0 ships two: Alice (bank at 2 mimics) and Bob (bank at 2 treasures); both are deliberately easy so the human can test the demo without losing on the first try. Legacy bots in `legacy/zombie-dice-bots/` remain reference-only and are not imported.
+Bots live in `systems/bots.py`. Each `Bot` is a `(name, strategy)` pair where `strategy(context: BotContext) -> BotDecision`. The single `BotContext` dataclass (treasures, mimics, red-dice-remaining) is what lets a newer color-aware bot like Lizzie read more state without breaking existing strategies that only care about counts. The strategy is consulted *after* each roll settles — never mid-tumble — and is shielded from busted states because `TurnEngine` flips status to `BUST` before the bot ever sees the post-roll counts. The current roster is Alice (bank at 2 mimics), Bob (bank at 2 treasures), and Lizzie (tracks remaining red dice; banks at the `BotSettings.LIZZIE_*` thresholds unless every red die is already out, in which case she keeps pushing). Legacy bots in `legacy/zombie-dice-bots/` remain reference-only and are not imported.
 
 Bot pacing lives entirely in `GameManager._tick_bot`. After each roll settles or a turn ends, the `_bot_action_timer` is set to one of two values from `BotSettings` (`AFTER_ROLL_DELAY_S`, `END_OF_TURN_DELAY_S`). The same timer gates both bot decisions and post-turn advancement, so the loop reads naturally for human turns too (when there's no decision to make, only the post-turn advance ever fires).
 

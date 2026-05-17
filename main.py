@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from systems.bag import Bag
-from systems.bots import Bot, BotDecision, make_bot
+from systems.bots import Bot, BotContext, BotDecision, make_bot
 from systems.dice_roller import DiceRoller
 from systems.outcomes import Outcome
 from systems.turn_engine import TurnEngine, TurnStatus
@@ -110,7 +110,7 @@ class GameManager:
 
         # -------- UI panels --------
         self.message_log = MessageLog()
-        self.stats_panel = StatsPanel(self.dice_roller.outcome_sprites)
+        self.stats_panel = StatsPanel(self.dice_roller.settled_sprites)
 
         # -------- Post-processing --------
         self.full_screen = False
@@ -206,7 +206,9 @@ class GameManager:
             return
 
         result = self._turn_engine.roll()
-        self.dice_roller.roll_with_results(list(result.faces), list(result.outcomes))
+        self.dice_roller.roll_with_results(
+            list(result.colors), list(result.outcomes)
+        )
         self._waiting_for_roll = True
         self._last_roll_result = result
 
@@ -332,8 +334,11 @@ class GameManager:
             return  # Humans drive input directly; no auto-action.
 
         decision = player.bot.decide(
-            self._turn_engine.turn_treasures,
-            self._turn_engine.turn_mimics,
+            BotContext(
+                turn_treasures=self._turn_engine.turn_treasures,
+                turn_mimics=self._turn_engine.turn_mimics,
+                red_dice_remaining=self._turn_engine.red_dice_remaining(),
+            )
         )
         if decision is BotDecision.ROLL:
             self._do_roll()
@@ -470,7 +475,7 @@ class GameManager:
                 PlayerView(name=p.name, score=p.score) for p in self.players
             ],
             active_player_index=self._current_player_index,
-            set_aside_faces=self._turn_engine.set_aside_faces,
+            set_aside_colors=self._turn_engine.set_aside_colors,
             set_aside_outcomes=self._turn_engine.set_aside_outcomes,
         )
 

@@ -20,7 +20,7 @@ class ColorSettings:
     GREEN = (0, 255, 0)
     BLUE = (0, 0, 255)
     YELLOW = (255, 220, 60)        # Warm yellow used for the actively-typing log line.
-    TREASURE_YELLOW = (255, 232, 27)  # Matches the yellow die body so log text and dice agree.
+    TREASURE_YELLOW = (255, 232, 27)  # Highlight color for TREASURE/BANK/WIN tokens in the message log.
     LIGHT_GREY = (220, 220, 220)
     VELVET_GREEN = (24, 78, 56)    # Deep felt green, classic gaming-table look.
     MAROON = (96, 28, 36)          # Deep red felt, alternative tray color.
@@ -118,26 +118,33 @@ class AssetPaths:
     """
 
     # ---- Files ----
+    # The tumble row still comes from the original six-sided sheet so
+    # dice in flight look the same regardless of their color. Settled
+    # dice render from the per-outcome PNGs further down.
     DICE_SHEET = "assets/graphics/sprites/six_sided_die.png"
     TV = "assets/graphics/effects/tv.png"
 
     # ---- Dice sprite sheet layout ----
     DIE_TILE_SIZE = 16             # Source tile size on the sheet (square px).
-    DIE_FACE_ROW = 0               # Row index for settled white faces (1..6).
-    DIE_TUMBLE_ROW = 14            # Row index for white mid-tumble poses.
-    DIE_FACE_COUNT = 6             # Number of distinct settled faces.
+    DIE_TUMBLE_ROW = 14            # Row index for the shared white tumble poses.
     DIE_TUMBLE_FRAME_COUNT = 6     # Number of mid-tumble frames in that row.
 
-    # ---- Phase 0 outcome sprite rows ----
-    # Each outcome maps to a colored die row so players can read results at a
-    # glance. All dice still have equal odds in Phase 0; the color is a
-    # readability cue only. Phase 3 will replace the number art with real icons.
-    # Row colors were verified by pixel-sampling six_sided_die.png: row 2 is
-    # the saturated red, row 10 is the saturated yellow, and the sheet has no
-    # grey row so row 0 (white) is the most-neutral stand-in for EMPTY.
-    DIE_MIMIC_ROW = 2              # Red row → MIMIC outcome.
-    DIE_EMPTY_ROW = 0              # White row → EMPTY (held-over) outcome; sheet has no grey.
-    DIE_TREASURE_ROW = 10          # Yellow row → TREASURE outcome.
+    # ---- Settled-die art (per-color, per-outcome single sprites) ----
+    # Keyed by (DieColor.value, Outcome.value) so DiceRoller can build the
+    # sprite map at load time without translating between enums and paths.
+    # White art exists in the folder for future use but is not currently
+    # mapped — only GREEN / PURPLE / RED dice live in the bag today.
+    SETTLED_SPRITES = {
+        ("green",  "MIMIC"):    "assets/graphics/sprites/mimic_green.png",
+        ("green",  "EMPTY"):    "assets/graphics/sprites/empty_chest_green.png",
+        ("green",  "TREASURE"): "assets/graphics/sprites/treasure_green.png",
+        ("purple", "MIMIC"):    "assets/graphics/sprites/mimic_purple.png",
+        ("purple", "EMPTY"):    "assets/graphics/sprites/empty_chest_purple.png",
+        ("purple", "TREASURE"): "assets/graphics/sprites/treasure_purple.png",
+        ("red",    "MIMIC"):    "assets/graphics/sprites/mimic_red.png",
+        ("red",    "EMPTY"):    "assets/graphics/sprites/empty_chest_red.png",
+        ("red",    "TREASURE"): "assets/graphics/sprites/treasure_red.png",
+    }
 
 
 class LayoutSettings:
@@ -243,8 +250,17 @@ class BotSettings:
     END_OF_TURN_DELAY_S = 1.10
 
     # Initial seat order: human first, then the bots. Phase 2's lobby will
-    # replace this with a player-configured lineup.
-    DEFAULT_BOT_NAMES = ("ALICE", "BOB")
+    # replace this with a player-configured lineup. Lizzie joins now that
+    # colored dice exist — her strategy reads the live red-die count.
+    DEFAULT_BOT_NAMES = ("ALICE", "BOB", "LIZZIE")
+
+    # ---- Lizzie's bank thresholds ----
+    # Lizzie plays cautious-but-greedy: she pushes through a single mimic
+    # while she still has very few treasures, but locks in once either of
+    # the two thresholds below trips. Mirrors the legacy bot in
+    # `legacy/zombie-dice-bots/my_zombie.py::Lizzie`.
+    LIZZIE_BANK_AT_ONE_MIMIC_TREASURE  = 6   # Bank if mimics >= 1 and treasures >= this.
+    LIZZIE_BANK_AT_TWO_MIMICS_TREASURE = 1   # Bank if mimics >= 2 and treasures >= this.
 
 
 class GameOverSettings:
@@ -278,35 +294,26 @@ class GameOverSettings:
     CONTINUE_PROMPT = "PRESS A OR ENTER TO PLAY AGAIN"
 
 
-class OutcomeSettings:
-    """Phase 0 placeholder mapping from a 1-6 die face to a game outcome.
-
-    Mimic Dice has three outcomes per die: MIMIC, EMPTY (chest), and
-    TREASURE. The shipping game will read those outcomes from per-color
-    face distributions, but Phase 0 uses a single equal-odds 1-6 die so
-    the engine, UI, AI bots, and game loop can be exercised before the
-    color-distribution work begins. The two threshold values here are
-    what make the three outcomes equal-odds: 1-2 -> MIMIC,
-    3-4 -> EMPTY, 5-6 -> TREASURE.
-
-    Phase 1 will retire this class along with the equal-odds bag; the
-    consumers of `face_to_outcome` will be replaced by a per-color
-    distribution lookup at that time.
-    """
-
-    MIMIC_FACE_MAX = 2             # Highest face index treated as MIMIC.
-    EMPTY_FACE_MAX = 4             # Highest face index treated as EMPTY; faces above this are TREASURE.
-
-
 class BagSettings:
     """The pool of dice available each turn.
 
-    Phase 0: 13 mechanically-identical dice (equal 1/3 odds per outcome).
-    Phase 1 will replace this with the real Zombie Dice distribution
-    (6 green / 4 yellow / 3 red) without touching the bag or turn engine.
+    The bag holds 13 dice across three color tiers. These counts come
+    straight from Zombie Dice — they make the bust-risk curve feel right
+    in combination with the per-color face distributions defined in
+    `systems/outcomes.py::FACE_DISTRIBUTIONS`. `TOTAL_DICE` is derived
+    from `DICE_PER_COLOR` so the two can never drift apart.
     """
 
-    TOTAL_DICE = 13                # Total dice in the bag at turn start.
+    # Imported locally so this module avoids importing from a system
+    # package at top level; `BagSettings` is the only consumer.
+    from systems.outcomes import DieColor as _DieColor  # noqa: E402
+
+    DICE_PER_COLOR = {
+        _DieColor.GREEN:  6,       # "Lucky" tier  — most common in the bag.
+        _DieColor.PURPLE: 4,       # "Medium" tier — replaces Zombie Dice's yellow body.
+        _DieColor.RED:    3,       # "Hard" tier   — bust-risk tier, scarcest.
+    }
+    TOTAL_DICE = sum(DICE_PER_COLOR.values())  # Always 13; derived to stay in sync.
 
 
 class TurnSettings:

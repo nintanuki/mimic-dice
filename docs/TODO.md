@@ -46,18 +46,18 @@ This file tracks work in **phases**. Each phase has a clear goal; finish a phase
 **Goal:** Replace the 1/3-1/3-1/3 placeholder bag from Phase 0 with the real Zombie Dice bag: 13 dice across three color tiers with different face distributions, and reintroduce Lizzie.
 
 ### Rules engine
-- [ ] Build the 13-die bag with the correct color distribution (6 green, 4 yellow, 3 red).
-- [ ] Draw 3 dice per roll; replenish drawn-from-empty-chest holdovers back to 3 each subsequent roll, drawing fresh dice from the bag.
-- [ ] Map each color's face distribution to roll outcomes (treasure / empty chest / mimic).
-- [ ] Track per-turn treasure and per-turn mimics; bust at 3 mimics.
-- [ ] Bank action commits per-turn treasure to the player's score.
-- [ ] Win condition: first to 13 treasure triggers a final round; highest score after the round wins.
+- [x] Build the 13-die bag with the correct color distribution (6 green, 4 purple, 3 red). *(Purple replaces Zombie Dice's yellow body color; counts live in `BagSettings.DICE_PER_COLOR`.)*
+- [x] Draw 3 dice per roll; replenish drawn-from-empty-chest holdovers back to 3 each subsequent roll, drawing fresh dice from the bag. *(Already shipped in Phase 0; held-overs now keep their original color across re-rolls.)*
+- [x] Map each color's face distribution to roll outcomes (treasure / empty chest / mimic). *(See `systems/outcomes.py::FACE_DISTRIBUTIONS` — green 3/2/1, purple 2/2/2, red 1/2/3.)*
+- [x] Track per-turn treasure and per-turn mimics; bust at 3 mimics.
+- [x] Bank action commits per-turn treasure to the player's score.
+- [x] Win condition: first to 13 treasure triggers a final round; highest score after the round wins.
 
 ### Visual placeholder mapping
-- [ ] Temporarily map the existing 6-sided number dice to Zombie Dice outcomes per-color so the engine has something to render against. Document the mapping in `ARCHITECTURE.md` so it is obvious that this is placeholder behavior. (Phase 0 already covers the equal-odds version; this phase replaces it with real color-distribution odds.)
+- [x] Temporarily map the existing 6-sided number dice to Zombie Dice outcomes per-color so the engine has something to render against. *(Skipped — the new per-color chest / mimic / treasure PNGs landed in this pass, so the engine renders final art directly. Phase 3's "Final dice art" item is therefore already done as a side-effect.)*
 
 ### AI opponents
-- [ ] Reintroduce Lizzie (she was sat out for Phase 0 because her strategy depends on red-dice counts).
+- [x] Reintroduce Lizzie (she was sat out for Phase 0 because her strategy depends on red-dice counts). *(`lizzie_strategy` in `systems/bots.py`, fed by `TurnEngine.red_dice_remaining()` through the new `BotContext`.)*
 
 ### Minimum UI
 - [ ] Display this turn's running treasure and mimics (extends the stats panel built in Phase 0).
@@ -84,8 +84,8 @@ This file tracks work in **phases**. Each phase has a clear goal; finish a phase
 
 **Goal:** Replace placeholder visuals with the treasure / mimic theme.
 
-- [ ] Final dice art: treasure chest, empty chest, mimic icons on green/yellow/red dice bodies.
-- [ ] Update `assets/graphics/sprites/six_sided_die.png` (or replace with new sheets) and refresh sheet-layout constants in `AssetPaths`.
+- [x] Final dice art: treasure chest, empty chest, mimic icons on green / purple / red dice bodies. *(Twelve standalone PNGs landed during the Phase 1 colored-bag pass; tumble row still comes from the original `six_sided_die.png` for the rolling animation.)*
+- [x] Update `assets/graphics/sprites/six_sided_die.png` (or replace with new sheets) and refresh sheet-layout constants in `AssetPaths`. *(Sheet kept as the tumble-row source only; settled-art paths now live in `AssetPaths.SETTLED_SPRITES`.)*
 - [ ] Tray reskin: dungeon table / treasure-room aesthetic.
 - [ ] Background art and per-player avatar / character portraits for AI personalities.
 - [ ] Refresh `assets/graphics/sprites/attributions.md` with new sources.

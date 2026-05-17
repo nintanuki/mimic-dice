@@ -408,6 +408,108 @@ the dt comment explains why milliseconds are converted to seconds.
 
 **Editor:** Frankie, with Claude (claude-sonnet-4-6) via Cowork.
 
+---
+
+## 2026-05-17 02:02 +00:00 — Phase 1: colored bag (6 green / 4 purple / 3 red), per-color settled art, Lizzie back in the roster
+
+**File:** systems/outcomes.py
+**Lines (at time of edit):** 1-62 (rewritten)
+**Before:**
+    `Outcome` enum (MIMIC / EMPTY / TREASURE) plus a Phase 0 `face_to_outcome(face)` that mapped faces 1-2 → MIMIC, 3-4 → EMPTY, 5-6 → TREASURE via `OutcomeSettings`.
+**After:**
+    New `DieColor` enum (GREEN / PURPLE / RED — string values are the lower-case color names so they compose into asset paths). `Outcome` kept verbatim. Added module-level `FACE_DISTRIBUTIONS: dict[DieColor, tuple[Outcome, ...]]` with six-entry tuples per color (GREEN 3/2/1, PURPLE 2/2/2, RED 1/2/3) and a `roll_color(color)` helper. The threshold-based `face_to_outcome` is gone; nothing imports it anymore.
+**Why:** Phase 1 swaps the equal-odds bag for the real Zombie Dice distribution. Keeping DieColor + Outcome + FACE_DISTRIBUTIONS in one module avoids the circular import we'd hit if the dict literal lived in `settings.py`.
+
+**File:** settings.py
+**Lines (at time of edit):** AssetPaths (113-147), OutcomeSettings (deleted), BagSettings (297-316), BotSettings (added LIZZIE constants)
+**Before:**
+    `AssetPaths` carried `DIE_FACE_ROW / DIE_MIMIC_ROW / DIE_EMPTY_ROW / DIE_TREASURE_ROW / DIE_FACE_COUNT` row indexes into the six-sided sheet. `OutcomeSettings` held `MIMIC_FACE_MAX = 2` and `EMPTY_FACE_MAX = 4`. `BagSettings.TOTAL_DICE = 13` was a hard-coded integer. `BotSettings.DEFAULT_BOT_NAMES = ("ALICE", "BOB")`.
+**After:**
+    `AssetPaths` lists only the tumble row of the sheet plus a new `SETTLED_SPRITES` dict keyed by `(color_value, outcome_value)` mapping to twelve standalone PNGs (the white art is shipped but not currently mapped to a die). `OutcomeSettings` deleted. `BagSettings` now imports `DieColor` inside the class body (to avoid top-level circular imports) and defines `DICE_PER_COLOR = {GREEN:6, PURPLE:4, RED:3}`; `TOTAL_DICE = sum(DICE_PER_COLOR.values())` so the two can't drift apart. `BotSettings.DEFAULT_BOT_NAMES = ("ALICE", "BOB", "LIZZIE")`; added `LIZZIE_BANK_AT_ONE_MIMIC_TREASURE = 6` and `LIZZIE_BANK_AT_TWO_MIMICS_TREASURE = 1`.
+**Why:** Settings should reflect the real game's tunables, not the Phase 0 stubs. The sprite-row constants describe a sheet layout that no longer drives rendering; the per-color counts and Lizzie thresholds describe the actual gameplay.
+
+**File:** systems/bag.py
+**Lines (at time of edit):** 1-126 (rewritten)
+**Before:**
+    `Bag` was an integer counter; `draw(n) -> list[int]` returned 1-6 face values; `recycle(set_aside: list[Outcome])` counted TREASUREs and added that many back to the count.
+**After:**
+    `Bag` is a shuffled `list[DieColor]` populated from `BagSettings.DICE_PER_COLOR`. `draw(n) -> list[DieColor]` returns the colors of drawn dice in order (without replacement). `recycle(set_aside_colors, set_aside_outcomes)` reinserts only the TREASURE entries, preserving each die's color, and re-shuffles. New `count_color(color)` for AI strategies (Lizzie's red-tracking).
+**Why:** Every die now has a color that drives both its outcome distribution and its settled sprite, so the bag has to remember individual dice instead of just a count.
+
+**File:** systems/turn_engine.py
+**Lines (at time of edit):** 1-218 (rewritten)
+**Before:**
+    `RollResult.faces: list[int]` paired with `outcomes`; engine carried `held_over: int` and `set_aside_faces: list[int]`; `roll()` generated 1-6 faces with `random.randint`, ran `face_to_outcome` to classify.
+**After:**
+    `RollResult.colors: list[DieColor]` paired with `outcomes`; engine carries `held_over_colors: list[DieColor]` (a property `held_over` still returns its length) and `set_aside_colors: list[DieColor]`. `roll()` builds `all_colors = held_over_colors + bag.draw(...)` so held-overs keep their original color across re-rolls, then resolves outcomes via `roll_color(color)` per die. New `red_dice_remaining()` helper that bots can ask for.
+**Why:** Color is now a property of the die (not the roll), so it has to follow held-over dice from one push to the next. Lizzie needs `red_dice_remaining()` to drive her bust-risk heuristic.
+
+**File:** systems/animated_die.py
+**Lines (at time of edit):** 1-220 (rewritten)
+**Before:**
+    Constructor took `outcome_sprites: dict[Outcome, list[Surface]]`; `pending_outcome` + `pending_face: Optional[int]`; `_settle()` picked `outcome_sprites[pending_outcome][pending_face - 1]` (column = face value).
+**After:**
+    Constructor takes `settled_sprites: dict[tuple[DieColor, Outcome], pygame.Surface]`; `pending_color: Optional[DieColor]` replaces `pending_face`. `_settle()` looks up the single sprite at `(pending_color, pending_outcome)` and renders it; tumble path unchanged.
+**Why:** The art pipeline shipped twelve standalone PNGs (one per color × outcome), so a die has exactly one settled sprite to render — no column index needed.
+
+**File:** systems/dice_roller.py
+**Lines (at time of edit):** 1-189 (rewritten)
+**Before:**
+    Loaded three outcome face rows from `six_sided_die.png` into `self.outcome_sprites: dict[Outcome, list[Surface]]`. `roll_with_results(faces, outcomes)` assigned `pending_face` + `pending_outcome` per die.
+**After:**
+    Loads the tumble row from `six_sided_die.png` (shared by every color) plus twelve standalone settled PNGs from `AssetPaths.SETTLED_SPRITES` into `self.settled_sprites: dict[(DieColor, Outcome), Surface]`. `roll_with_results(colors, outcomes)` assigns `pending_color` + `pending_outcome` per die. New static `_load_settled_sprite(path)` scales the per-color PNGs by `DiceSettings.SCALE` to match the tumble row.
+**Why:** Tumble frames stay shared so memory stays low and dice in the air all look the same; settle reveals the per-color art that matches the engine-decided outcome.
+
+**File:** systems/bots.py
+**Lines (at time of edit):** 1-148 (rewritten)
+**Before:**
+    `Strategy = Callable[[int, int], BotDecision]`; `Bot.decide(turn_treasures, turn_mimics)`; Alice and Bob; no Lizzie.
+**After:**
+    New `BotContext` dataclass (treasures, mimics, red_dice_remaining); `Strategy = Callable[[BotContext], BotDecision]`; `Bot.decide(context)` takes the snapshot object. Added `lizzie_strategy`: banks at `BotSettings.LIZZIE_BANK_AT_ONE_MIMIC_TREASURE` once a single mimic is on the table or at `LIZZIE_BANK_AT_TWO_MIMICS_TREASURE` once two mimics are on; pushes regardless when `red_dice_remaining == 0`. Lizzie added to the name→strategy factory.
+**Why:** Lizzie needs color-aware state, and a one-shot context object lets future bots ask for more fields without breaking every existing strategy's signature.
+
+**File:** main.py
+**Lines (at time of edit):** import block (9), DiceRoller wiring (113), `_do_roll` call (208-210), bot call (334-340), stats panel call (468-475)
+**Before:**
+    `from systems.bots import Bot, BotDecision, make_bot`; `StatsPanel(self.dice_roller.outcome_sprites)`; `roll_with_results(result.faces, result.outcomes)`; `player.bot.decide(turn_treasures, turn_mimics)`; stats panel got `set_aside_faces`.
+**After:**
+    Imports `BotContext`. `StatsPanel(self.dice_roller.settled_sprites)`. `roll_with_results(result.colors, result.outcomes)`. `player.bot.decide(BotContext(turn_treasures, turn_mimics, self._turn_engine.red_dice_remaining()))`. Stats panel gets `set_aside_colors`.
+**Why:** GameManager is the seam between the engine and the renderer + bots; both now speak colors instead of faces.
+
+**File:** ui/stats_panel.py
+**Lines (at time of edit):** 1-271 (rewritten)
+**Before:**
+    Constructor took `outcome_sprites: dict[Outcome, list[Surface]]`; `_draw_held_row(label, faces, outcome, ...)` indexed by `face - 1`; `draw()` accepted `set_aside_faces`.
+**After:**
+    Constructor takes `settled_sprites: dict[(DieColor, Outcome), Surface]`; `_draw_held_row(label, colors, outcome, ...)` looks up `settled_sprites[(color, outcome)]` per thumb; `draw()` accepts `set_aside_colors` instead.
+**Why:** Held-dice thumbs now share the per-color settled art with the tray, so a banked green TREASURE shows the green chest sprite the player just saw land.
+
+**File:** README.md
+**Lines (at time of edit):** Status and Rules sections
+**Before:**
+    Status read "Phase 1 — Playable Prototype (in progress)". Rules section listed 6 green / 4 yellow / 3 red dice using brain / shotgun / runner terminology from Zombie Dice.
+**After:**
+    Status reads "Phase 1 — Color-Distribution Dice (landed)". Rules section reads 6 green / 4 PURPLE / 3 red with explicit per-color treasure / empty / mimic counts and notes that purple replaces Zombie Dice's yellow body. Goal text uses treasure / empty / mimic, not brain / runner / shotgun.
+**Why:** Public-facing rules now match the actual game.
+
+**File:** docs/TODO.md
+**Lines (at time of edit):** Phase 1 rules engine + AI sections; Phase 3 art bullets
+**Before:**
+    `[ ]` for every Phase 1 rules-engine item, the visual-placeholder bullet, the Lizzie-reintroduction bullet, and the Phase 3 "final dice art" bullets.
+**After:**
+    `[x]` for the rules-engine list (with the purple replacement called out), the AI Lizzie bullet (with a pointer to the new strategy and context plumbing), and the Phase 3 art bullets (the standalone PNGs already replaced the placeholder rendering).
+**Why:** Roadmap maintenance rule.
+
+**File:** docs/ARCHITECTURE.md
+**Lines (at time of edit):** Section 3.4-3.5, 9.1-9.4, bots paragraph in 9.6
+**Before:**
+    3.4 described the Phase-0 number-die placeholder with row indexes 2/0/10. 3.5 documented `face_to_outcome` as the Phase-0 seam. 9.1-9.3 described `Bag` as an integer counter, `RollResult.faces`, `set_aside_faces`, and `AnimatedDie._settle()` indexing by face column. 9.6 described bots as `(turn_treasures, turn_mimics)` callables with Lizzie still excluded.
+**After:**
+    3.4 documents the real per-color bag (counts + face distribution table) and the per-color settled PNG art. 3.5 documents DieColor, FACE_DISTRIBUTIONS, and `roll_color`. 9.1 describes the typed-dice Bag with `count_color`. 9.2 describes `held_over_colors` and `red_dice_remaining()`. 9.3 documents the (color, outcome) settled sprite map with a per-color asset table. 9.6 describes `BotContext` and Lizzie's thresholds.
+**Why:** Architecture doc must reflect every system that shipped.
+
+**Editor:** Frankie, with Claude (claude-opus-4-7) via Cowork.
+
 ## 2026-05-16 — Phase 0 rules-engine pass: row remap, face-to-sprite plumbing, stats panel, log cleanup
 
 This is one logical change (post-Sonnet review). Sonnet's preceding pass shipped colors that didn't match what the sprite sheet actually contained, a face-vs-outcome disconnect that confused the player, duplicated welcome lines, and a placeholder stats panel.
