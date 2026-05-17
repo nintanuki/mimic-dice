@@ -61,12 +61,15 @@ class GameManager:
         """
 
         pygame.init()
+        # Always boot in a known windowed mode first so the cached
+        # `RESOLUTION` size is the canonical "windowed" geometry; if the
+        # caller asked for fullscreen, `_apply_display_mode` switches into
+        # it via set_mode (not toggle_fullscreen) further down — see the
+        # post-processing block for why.
         self.screen = pygame.display.set_mode(
             ScreenSettings.RESOLUTION, pygame.RESIZABLE
         )
         pygame.display.set_caption(ScreenSettings.TITLE)
-        if start_fullscreen:
-            pygame.display.toggle_fullscreen()
         self.clock = pygame.time.Clock()
 
         self.setup_controllers()
@@ -113,7 +116,12 @@ class GameManager:
         self.stats_panel = StatsPanel()
 
         # -------- Post-processing --------
+        # `full_screen` tracks the *current* mode so input handlers don't
+        # have to round-trip through SDL to check. `_apply_display_mode`
+        # below is the only thing that mutates it so the two can't drift.
         self.full_screen = False
+        if start_fullscreen:
+            self._apply_display_mode(fullscreen=True)
         self.crt = CRT(self.screen)
 
         # Start the first turn and greet the player.
@@ -153,6 +161,51 @@ class GameManager:
         """Close the game process cleanly."""
         pygame.quit()
         sys.exit()
+
+    # -------------------------
+    # DISPLAY MODE
+    # -------------------------
+
+    def _apply_display_mode(self, fullscreen: bool) -> None:
+        """Switch into windowed or fullscreen and re-sync everything that
+        cares about screen size.
+
+        Why this exists: `pygame.display.toggle_fullscreen()` is known to
+        misbehave on Windows when the window was created with `RESIZABLE`
+        (the surface can be invalidated mid-frame, taking the next draw
+        call with it — that's the crash). `pygame.display.set_mode` with
+        the right flags is the supported way to swap, so this helper
+        does that, rebinds `self.screen`, and resizes any subsystem that
+        snapshots the screen size.
+
+        Args:
+            fullscreen: True to enter a borderless fullscreen at the
+                        current desktop resolution; False to return to
+                        the configured windowed `RESOLUTION`.
+        """
+        if fullscreen:
+            # Borderless fullscreen at desktop resolution gives the
+            # cleanest swap (no DPI/refresh-rate negotiation). Using
+            # SCALED keeps the canonical 800x600 logical surface and
+            # lets SDL letterbox, which avoids the dice/layout having
+            # to know anything about monitor geometry.
+            self.screen = pygame.display.set_mode(
+                ScreenSettings.RESOLUTION,
+                pygame.FULLSCREEN | pygame.SCALED,
+            )
+        else:
+            self.screen = pygame.display.set_mode(
+                ScreenSettings.RESOLUTION, pygame.RESIZABLE,
+            )
+        self.full_screen = fullscreen
+
+        # `dice_roller` and (post-init) `crt` both snapshot the screen at
+        # construction. Push the new size into the roller so the tray
+        # rebuilds its gradient at the right dimensions; we don't have
+        # to do anything for the CRT because it already draws against
+        # the canonical RESOLUTION, which is unchanged.
+        if hasattr(self, "dice_roller"):
+            self.dice_roller.resize(self.screen.get_size())
 
     def quit_combo_pressed(self) -> bool:
         """Return True if START + SELECT + L1 + R1 are held on any controller."""
@@ -244,6 +297,20 @@ class GameManager:
                 f"{self._current_player.name} SCORES 0."
             )
             self._end_turn_after_delay()
+            return
+
+        # Auto-win: if the active player's banked score plus the treasures
+        # already on the felt this turn would cross WIN_SCORE, there's no
+        # decision left to make — risking another roll could only bust.
+        # Auto-bank now so the player doesn't have to manually press it,
+        # and so a bot doesn't push past the win line. Applies to every
+        # seat for consistency.
+        player = self._current_player
+        if (
+            player.score + self._turn_engine.turn_treasures
+            >= TurnSettings.WIN_SCORE
+        ):
+            self._do_bank()
             return
 
         # Roll resolved cleanly. Start (or reset) the bot pacing timer so
@@ -357,8 +424,7 @@ class GameManager:
         """
         # F11 fullscreen toggle is global.
         if event.key == pygame.K_F11:
-            pygame.display.toggle_fullscreen()
-            self.full_screen = not self.full_screen
+            self._apply_display_mode(fullscreen=not self.full_screen)
 
         if not self._current_player.is_human:
             return
@@ -378,8 +444,7 @@ class GameManager:
 
         # Back is the global fullscreen toggle.
         if event.button == InputSettings.JOY_BUTTON_BACK:
-            pygame.display.toggle_fullscreen()
-            self.full_screen = not self.full_screen
+            self._apply_display_mode(fullscreen=not self.full_screen)
 
         if not self._current_player.is_human:
             return

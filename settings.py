@@ -22,14 +22,29 @@ class ColorSettings:
     YELLOW = (255, 220, 60)        # Warm yellow used for the actively-typing log line.
     TREASURE_YELLOW = (255, 232, 27)  # Highlight color for TREASURE/BANK/WIN tokens in the message log.
     LIGHT_GREY = (220, 220, 220)
-    VELVET_GREEN = (24, 78, 56)    # Deep felt green, classic gaming-table look.
+    VELVET_GREEN = (24, 78, 56)    # Deep felt green, classic gaming-table look (legacy).
     MAROON = (96, 28, 36)          # Deep red felt, alternative tray color.
+    BROWN_LIGHT = (150, 100, 55)   # Warm tan; sits at the center of the tray.
+    BROWN_DARK  = (40, 22, 10)     # Deep walnut shadow; sits at the tray edges.
+
+    # ---- Per-color tumble tints ----
+    # Multiplied onto the white tumble strip at load time so a die in flight
+    # already reads as its eventual settled color. Picked to roughly match
+    # the face PNGs without being so saturated that the spots disappear.
+    # Keyed by `DieColor.value` so this dict can sit in settings.py without
+    # importing the enum (would create a circular import).
+    DIE_TUMBLE_TINTS = {
+        "green":  (90, 210, 90),
+        "yellow": (240, 205, 70),
+        "red":    (220, 80, 80),
+    }
 
     # ---- Role aliases (reference the palette above) ----
     BG_COLOR = NERO                # Color filled behind everything each frame.
     OVERLAY_BACKGROUND = WHITE     # Base color used by the CRT scanline overlay.
     TRAY_BORDER_COLOR = LIGHT_GREY # Outline drawn around the dice tray.
-    TRAY_FILL_COLOR = VELVET_GREEN # Inside of the dice tray (felt surface).
+    TRAY_FILL_CENTER = BROWN_LIGHT # Center of the radial gradient on the tray.
+    TRAY_FILL_EDGE   = BROWN_DARK  # Outer ring of the radial gradient on the tray.
     PANEL_BORDER_COLOR = LIGHT_GREY  # Outline drawn around UI panel frames.
     PANEL_FILL_COLOR = BLACK         # Inside of UI panel frames; lets text stand out.
     LOG_TEXT_DEFAULT = WHITE         # Color of settled (historical) log lines.

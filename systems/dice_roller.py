@@ -30,16 +30,20 @@ the table; your footsteps are the only thing you re-roll.
 Sprite sources
 --------------
 Tumble frames come from a single-row sheet
-(`AssetPaths.DIE_TUMBLE_SHEET`) shared across every color so every die in
-flight reads identically. Settled faces are one PNG per (color, outcome)
-pair listed in `AssetPaths.DIE_FACE_SPRITES`: green/yellow/red bodies
-each with a MIMIC, EMPTY, and TREASURE face. The color tells the player
-how risky the die was; the face tells them what happened on this roll.
+(`AssetPaths.DIE_TUMBLE_SHEET`) loaded once and then multiplied by each
+color's `ColorSettings.DIE_TUMBLE_TINTS` entry, producing one tinted
+tumble strip per `DieColor`. A die in flight picks the strip matching
+its `pending_color`, so the rolling animation already reads as the
+color the die will settle into. Settled faces are one PNG per (color,
+outcome) pair listed in `AssetPaths.DIE_FACE_SPRITES`: green/yellow/red
+bodies each with a MIMIC, EMPTY, and TREASURE face. The color tells
+the player how risky the die was; the face tells them what happened
+on this roll.
 """
 
 import pygame
 
-from settings import AssetPaths, DiceSettings
+from settings import AssetPaths, ColorSettings, DiceSettings
 from systems.animated_die import AnimatedDie
 from systems.dice_tray import DiceTray
 from systems.outcomes import DieColor, Outcome
@@ -55,13 +59,21 @@ class DiceRoller:
         Args:
             window_size: Initial (width, height) of the display surface.
         """
-        # Tumble row is shared by every color — every die in flight reads
-        # the same in-air silhouette, which keeps memory low and means the
-        # color/outcome reveal lands at settle time.
+        # Load the white tumble strip once, then multiply each frame by
+        # the per-color tint so every die has its own tumble animation
+        # that already reads as the color it will settle into. The same
+        # tumble shape (6 frames) is reused for every color, so this is
+        # essentially free at runtime — three small surfaces in memory.
         tumble_sheet = SpriteSheet(AssetPaths.DIE_TUMBLE_SHEET)
-        self.tumble_sprites = self._load_sheet_row(
+        white_tumble = self._load_sheet_row(
             tumble_sheet, 0, AssetPaths.DIE_TUMBLE_FRAME_COUNT
         )
+        self.tumble_sprites_by_color: dict[DieColor, list[pygame.Surface]] = {}
+        for color in DieColor:
+            tint = ColorSettings.DIE_TUMBLE_TINTS[color.value]
+            self.tumble_sprites_by_color[color] = [
+                self._tint_surface(frame, tint) for frame in white_tumble
+            ]
 
         # face_sprites: (DieColor, Outcome) -> Surface. The settled art is
         # one PNG per (color, outcome) pair; the renderer simply looks up
@@ -117,6 +129,33 @@ class DiceRoller:
             return raw
         width, height = raw.get_size()
         return pygame.transform.scale(raw, (width * scale, height * scale))
+
+    @staticmethod
+    def _tint_surface(
+        source: pygame.Surface, tint_rgb: tuple[int, int, int],
+    ) -> pygame.Surface:
+        """Return a copy of `source` multiplied by `tint_rgb`.
+
+        Uses `BLEND_RGBA_MULT` (RGBA multiply blend) so white pixels in
+        the source become the tint color and black pixels stay black —
+        the same operation GIMP's Colorize does in spirit, on a per-channel
+        basis. The source's alpha channel is preserved (anything fully
+        transparent stays fully transparent), so this works equally well
+        on the white tumble strip whether or not its outlines are part of
+        the alpha mask.
+
+        Args:
+            source:   White-ish source surface to tint.
+            tint_rgb: 0-255 RGB tint to multiply the source by.
+
+        Returns:
+            A new RGBA surface the same size as `source`, tinted in place.
+        """
+        tinted = source.copy()
+        tint_layer = pygame.Surface(source.get_size(), pygame.SRCALPHA)
+        tint_layer.fill((*tint_rgb, 255))
+        tinted.blit(tint_layer, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        return tinted
 
     def resize(self, window_size: tuple[int, int]) -> None:
         """Resize the tray when the window changes size."""
@@ -180,7 +219,9 @@ class DiceRoller:
 
         # Fresh draws append as brand-new dice so the felt visually grows.
         for color, outcome in zip(colors[held_count:], outcomes[held_count:]):
-            die = AnimatedDie(self.face_sprites, self.tumble_sprites)
+            die = AnimatedDie(
+                self.face_sprites, self.tumble_sprites_by_color,
+            )
             die.pending_color = color
             die.pending_outcome = outcome
             die.roll(self.tray.rect)

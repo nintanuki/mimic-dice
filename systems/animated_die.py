@@ -2,8 +2,10 @@
 
 An `AnimatedDie` is owned by a `DiceRoller` and constrained by a `DiceTray`.
 It has two visual states:
-  * Rolling - cycles through the shared white tumble frames; the frame rate
-    scales with the die's speed so fast dice visibly spin faster.
+  * Rolling - cycles through the tumble frames tinted for this die's
+    `pending_color`, so a red die is already visibly red mid-air. The
+    frame rate scales with the die's speed so fast dice visibly spin
+    faster.
   * Settled - shows the (color, outcome) face sprite chosen at settle time
     from `face_sprites[(pending_color, pending_outcome)]`, so the art on
     the felt reads as "green smiling treasure" or "red angry mimic"
@@ -20,10 +22,10 @@ Physics notes:
 Color- and outcome-driven settle sprite
 ---------------------------------------
 Before calling `roll()`, the rules engine sets `die.pending_color` and
-`die.pending_outcome`. When the die settles, `_settle()` looks up the
-matching (color, outcome) PNG and renders it. The tumble row is shared
-(every color looks the same in flight) so memory stays low and the
-outcome reveal happens cleanly at rest.
+`die.pending_outcome`. While rolling, `draw()` picks the tumble strip
+matching `pending_color` so the die's tier reads at a glance during
+flight. When the die settles, `_settle()` looks up the matching
+(color, outcome) PNG and renders that instead.
 """
 
 import math
@@ -42,20 +44,28 @@ class AnimatedDie:
     def __init__(
         self,
         face_sprites: dict[tuple[DieColor, Outcome], pygame.Surface],
-        tumble_sprites: list[pygame.Surface],
+        tumble_sprites_by_color: dict[DieColor, list[pygame.Surface]],
     ):
         """Store the sprite frames; the die stays idle until `roll()` runs.
 
         Args:
-            face_sprites:    Map from `(color, outcome)` to the settled
-                             face PNG for that pairing. At settle time the
-                             die looks up `(pending_color, pending_outcome)`
-                             directly and blits the matching art.
-            tumble_sprites:  Mid-tumble frames cycled while the die moves.
-                             Shared across every color (one white tumble row).
+            face_sprites:            Map from `(color, outcome)` to the
+                                     settled face PNG for that pairing. At
+                                     settle time the die looks up
+                                     `(pending_color, pending_outcome)`
+                                     directly and blits the matching art.
+            tumble_sprites_by_color: Tinted tumble strips, one list per
+                                     `DieColor`. The die picks the strip
+                                     for `pending_color` each frame while
+                                     it is in flight. Every strip has the
+                                     same frame count and frame size.
         """
         self.face_sprites = face_sprites
-        self.tumble_sprites = tumble_sprites
+        self.tumble_sprites_by_color = tumble_sprites_by_color
+
+        # Every tumble strip has the same length; cache it so per-frame
+        # math doesn't have to peek into the dict on every call.
+        self._tumble_count = len(next(iter(tumble_sprites_by_color.values())))
 
         # Use any sprite to derive the die's rendered size; every sprite is
         # the same source tile size scaled by `DiceSettings.SCALE`.
@@ -100,7 +110,7 @@ class AnimatedDie:
         )
         self.is_rolling = True
         self.tumble_timer = 0.0
-        self.tumble_index = random.randrange(len(self.tumble_sprites))
+        self.tumble_index = random.randrange(self._tumble_count)
 
     def _spawn_point(self, tray_rect: pygame.Rect) -> tuple[float, float]:
         """Return a spawn position just outside the configured tray corner."""
@@ -160,7 +170,7 @@ class AnimatedDie:
             steps = int(self.tumble_timer)
             self.tumble_timer -= steps
             self.tumble_index = (
-                (self.tumble_index + steps) % len(self.tumble_sprites)
+                (self.tumble_index + steps) % self._tumble_count
             )
 
     def _settle(self) -> None:
@@ -204,12 +214,23 @@ class AnimatedDie:
             self._settle()
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Render the current frame centered on `position`."""
-        sprite = (
-            self.tumble_sprites[self.tumble_index]
-            if self.is_rolling
-            else self._settled_sprite
-        )
+        """Render the current frame centered on `position`.
+
+        While rolling, the die picks the tumble strip matching its
+        `pending_color` so the in-flight tint already reads as the color
+        the die will settle into. A pre-roll die (no color assigned) falls
+        back to an arbitrary tumble strip so a misuse renders something
+        visible rather than crashing.
+        """
+        if self.is_rolling:
+            strip = (
+                self.tumble_sprites_by_color[self.pending_color]
+                if self.pending_color is not None
+                else next(iter(self.tumble_sprites_by_color.values()))
+            )
+            sprite = strip[self.tumble_index]
+        else:
+            sprite = self._settled_sprite
         render_position = (
             int(self.position.x - self.size / 2),
             int(self.position.y - self.size / 2),
