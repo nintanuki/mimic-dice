@@ -5,7 +5,7 @@ draw from it conceptually each time they choose to roll.
 
 Each die in the bag carries a `DieColor` so the engine can route it
 through the right per-color face distribution. The bag holds the
-`BagSettings.DICE_PER_COLOR` makeup (6 green / 4 purple / 3 red), drawn
+`BagSettings.DICE_PER_COLOR` makeup (6 green / 4 yellow / 3 red), drawn
 randomly without replacement until the bag empties; mid-turn refills
 bring TREASURE-outcome dice back so a long press-your-luck streak does
 not strand the player with nothing to roll.

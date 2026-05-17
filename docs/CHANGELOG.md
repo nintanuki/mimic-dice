@@ -611,3 +611,97 @@ Two related changes shipped together because the bot-rotation work is only demoa
 **Why:** Architecture doc must reflect every system that shipped.
 
 **Editor:** Frankie, with Claude (claude-opus-4-7) via Cowork.
+
+## 2026-05-17 03:35 +00:00 — Phase 1 revision: PURPLE → YELLOW rename and colored-pip renderer (drop per-color settled PNGs)
+
+The Phase 1 pass shipped per-color chest / mimic / treasure PNGs for the felt and called the middle tier PURPLE. The new look reverts to colored 1-6 pip dice from `six_sided_die.png`, with the *pip number* on a settled die mapping to its outcome via a per-color band (green 1=MIMIC / 2-3=EMPTY / 4-6=TREASURE, yellow 1-2 / 3-4 / 5-6, red 1-3 / 4-5 / 6). Probabilities are unchanged — band widths match `FACE_DISTRIBUTIONS` counts, so the pip pick is statistically identical to a `roll_color` pick. The middle tier is renamed YELLOW everywhere to match Zombie Dice naming. The standalone per-color PNGs (`mimic_*.png`, `empty_chest_*.png`, `treasure_*.png`) stay on disk but are no longer referenced. The stats panel switches to three color-agnostic flat icons (`mimic.png`, `empty_chest.png`, `treasure.png`).
+
+**File:** settings.py
+**Lines (at time of edit):** AssetPaths (~113-156), BagSettings.DICE_PER_COLOR (~311-315)
+**Before:**
+    `AssetPaths` listed `SETTLED_SPRITES: dict[(color_value, outcome_value), path]` mapping nine standalone PNGs (green/purple/red × mimic/empty/treasure). `BagSettings.DICE_PER_COLOR` keyed PURPLE.
+**After:**
+    `AssetPaths` drops `SETTLED_SPRITES`. New `DIE_FACE_COUNT = 6` (pip columns per row). New `DIE_FACE_ROWS = {"red": 2, "green": 8, "yellow": 10}` (0-indexed sheet rows for the three colored pip rows). New `FLAT_OUTCOME_SPRITES = {"MIMIC": "…/mimic.png", "EMPTY": "…/empty_chest.png", "TREASURE": "…/treasure.png"}` for the stats panel. `BagSettings.DICE_PER_COLOR` keys YELLOW instead of PURPLE.
+**Why:** Pulls the felt's per-color pip rows out of the existing single sheet (one row per color, 1-6 left to right) and gives the right-side panel its own color-agnostic icon set. PURPLE → YELLOW matches Zombie Dice naming now that the design no longer needs the purple-as-yellow stand-in.
+
+**File:** systems/outcomes.py
+**Lines (at time of edit):** 1-150 (rewritten)
+**Before:**
+    `DieColor` had `PURPLE = "purple"`. `FACE_DISTRIBUTIONS` keyed `DieColor.PURPLE`. Only `roll_color` was exposed.
+**After:**
+    `DieColor.PURPLE` renamed to `YELLOW = "yellow"`. `FACE_DISTRIBUTIONS` re-keyed under `DieColor.YELLOW` (same 2/2/2 tuple). New module-level `OUTCOME_FACE_NUMBERS: dict[(DieColor, Outcome), tuple[int, ...]]` that maps each (color, outcome) to the pip faces representing it (green {1}/{2,3}/{4,5,6}, yellow {1,2}/{3,4}/{5,6}, red {1,2,3}/{4,5}/{6}). New `face_for_outcome(color, outcome) -> int` helper that random-choices a pip from the matching set.
+**Why:** Visual layer over the existing outcome model: the rules engine still picks Outcome from `FACE_DISTRIBUTIONS`, the renderer picks a pip from the matching band. Band widths mirror outcome counts so probabilities are mathematically identical.
+
+**File:** systems/animated_die.py
+**Lines (at time of edit):** 1-220 (rewritten)
+**Before:**
+    Constructor took `settled_sprites: dict[(DieColor, Outcome), Surface]`. `_settle()` blitted `settled_sprites[(pending_color, pending_outcome)]` directly.
+**After:**
+    Constructor takes `face_sprites: dict[(DieColor, int), Surface]` keyed by (color, pip face 1-6). `_settle()` calls `face_for_outcome(pending_color, pending_outcome)` for a pip in [1, 6] and blits `face_sprites[(pending_color, pip)]`.
+**Why:** The felt is now numbered colored dice (1-6 per color), not three glyphs per color. The constructor's sprite-map shape changes to match what the renderer needs to look up.
+
+**File:** systems/dice_roller.py
+**Lines (at time of edit):** 1-180 (rewritten)
+**Before:**
+    Loaded the tumble row plus nine standalone PNGs via `_load_settled_sprite(path)` into `self.settled_sprites`. Passed `settled_sprites` to each `AnimatedDie`.
+**After:**
+    Loads only `six_sided_die.png` once. Slices the tumble row (unchanged) plus three colored pip-face rows from `AssetPaths.DIE_FACE_ROWS` into `self.face_sprites: dict[(DieColor, int), Surface]` (column 0 → pip 1, column 5 → pip 6). Passes `face_sprites` to each `AnimatedDie`. `_load_settled_sprite` removed (no standalone PNG loading anymore).
+**Why:** Single-sheet load is simpler, matches the new renderer, and keeps the asset table inside `AssetPaths` instead of split between row constants and a per-PNG dict.
+
+**File:** ui/stats_panel.py
+**Lines (at time of edit):** 1-260 (rewritten)
+**Before:**
+    Constructor took `settled_sprites: dict[(DieColor, Outcome), Surface]` from `DiceRoller`. `_split_set_aside_by_outcome` partitioned a `colors: list[DieColor]` into treasure/mimic lists; `_draw_held_row(label, colors, outcome, …)` blitted `settled_sprites[(color, outcome)]` per thumb. `draw(...)` accepted both `set_aside_colors` and `set_aside_outcomes`.
+**After:**
+    Constructor takes no args; loads three flat icons from `AssetPaths.FLAT_OUTCOME_SPRITES` into `self.outcome_sprites: dict[Outcome, Surface]` via new static `_load_flat_sprite(path)`. `_split_set_aside_by_outcome` removed (no color routing needed). `_draw_held_row(label, count: int, outcome, …)` blits the same icon `count` times. `draw(...)` accepts only `set_aside_outcomes` and counts MIMIC / TREASURE inline.
+**Why:** The right bar drops color entirely — banked green TREASURE and banked red TREASURE render as the same `treasure.png`. Color belongs to the felt only.
+
+**File:** main.py
+**Lines (at time of edit):** `StatsPanel` construction (~113), `stats_panel.draw` call (~471-480)
+**Before:**
+    `self.stats_panel = StatsPanel(self.dice_roller.settled_sprites)`; the draw call passed both `set_aside_colors=…` and `set_aside_outcomes=…`.
+**After:**
+    `self.stats_panel = StatsPanel()`; the draw call passes only `set_aside_outcomes=…`. The panel no longer reaches into `DiceRoller` for sprites.
+**Why:** Matches the panel's new color-agnostic constructor + draw signature.
+
+**File:** systems/bag.py
+**Lines (at time of edit):** module docstring (~8)
+**Before:**
+    "(6 green / 4 purple / 3 red)".
+**After:**
+    "(6 green / 4 yellow / 3 red)".
+**Why:** Reflects the renamed middle tier.
+
+**File:** systems/bots.py
+**Lines (at time of edit):** `lizzie_strategy` docstring (~122-123)
+**Before:**
+    "sometimes the remaining greens / purples still bust her".
+**After:**
+    "sometimes the remaining greens / yellows still bust her".
+**Why:** Reflects the renamed middle tier.
+
+**File:** README.md
+**Lines (at time of edit):** Status (~22) and Rules section (~29)
+**Before:**
+    Status: "6 green / 4 purple / 3 red … per-color face distributions and the per-color settled-die art". Rules: "**4 purple dice** … (medium tier; replaces Zombie Dice's yellow body)".
+**After:**
+    Status: "6 green / 4 yellow / 3 red … Each die renders as a colored 1-6 pip face; the *number* on the die maps to its outcome via a per-color band". Rules: "**4 yellow dice** — 2 treasure, 2 empty, 2 mimic (medium tier)".
+**Why:** Public-facing rules now match the actual game.
+
+**File:** docs/ARCHITECTURE.md
+**Lines (at time of edit):** §3.1 (DiceRoller bullets), §3.3 (settle paragraph), §3.4 (rewritten — per-color dice + pip-band table), §3.5 (Outcome + DieColor layer), §9.1 (bag reset), §9.3 (settle paragraph), §9.4 (stats panel)
+**Before:**
+    §3.1 referenced the single face row and `roll_all()`. §3.3 settle described picking a random face from the face row. §3.4 documented PURPLE and the per-(color, outcome) PNG table. §3.5 listed `DieColor.PURPLE` and only `roll_color`. §9.1 listed "6 GREEN + 4 PURPLE + 3 RED". §9.3 described `settled_sprites[(color, outcome)]` lookup. §9.4 described the panel sharing the tray's `settled_sprites`.
+**After:**
+    §3.1 documents the three pip rows + tumble row load and the `roll_with_results` entry point. §3.3 settle reads the pip face from `face_for_outcome`. §3.4 documents YELLOW, the per-color pip-band mapping with a new table, and notes the standalone PNGs are no longer mapped. §3.5 documents `DieColor.YELLOW`, `OUTCOME_FACE_NUMBERS`, and `face_for_outcome`. §9.1 lists "6 GREEN + 4 YELLOW + 3 RED". §9.3 settle reads the pip-face mapping. §9.4 documents the color-agnostic flat-icon panel.
+**Why:** Architecture doc must reflect every system that changed shape.
+
+**File:** docs/TODO.md
+**Lines (at time of edit):** Phase 1 header block
+**Before:**
+    Phase 1 opened straight into the rules-engine `[x]` list with no callout.
+**After:**
+    Added a "Post-Phase 1 revision (2026-05-16)" blockquote at the top of Phase 1 explaining the PURPLE → YELLOW rename, the renderer rollback to colored 1-6 pip dice, the new per-color outcome → pip band, and the color-agnostic flat icons in the stats panel. Existing `[x]` items remain marked complete per the roadmap-maintenance rule; their parentheticals describe the original Phase 1 implementation, not the revised state.
+**Why:** Roadmap-maintenance rule forbids unmarking completed items; the revision note keeps the file honest about the current code without rewriting history.
+
+**Editor:** Frankie, with Claude (claude-opus-4-7) via Cowork.

@@ -19,14 +19,14 @@ This project is part of a larger arcade cabinet build. The cabinet runs an in-ho
 ## Status
 
 **Phase 1 — Color-Distribution Dice** (landed).
-The 13-die bag now ships the real Zombie Dice distribution (6 green / 4 purple / 3 red) with per-color face distributions and the per-color settled-die art. Lizzie is back in the bot roster. See [docs/TODO.md](docs/TODO.md) for the full roadmap.
+The 13-die bag now ships the real Zombie Dice distribution (6 green / 4 yellow / 3 red) with per-color face distributions. Each die renders as a colored 1-6 pip face; the *number* on the die maps to its outcome via a per-color band (e.g. green 1 = MIMIC, 2-3 = EMPTY, 4-6 = TREASURE) so the color tells you how risky the die is and the pip count tells you what it rolled. Lizzie is back in the bot roster. See [docs/TODO.md](docs/TODO.md) for the full roadmap.
 
 ## Rules
 
 The player shakes a cup of 13 dice and randomly draws 3 without looking. Dice come in three colors with different face distributions:
 
 - **6 green dice** — 3 treasure, 2 empty, 1 mimic (lucky tier).
-- **4 purple dice** — 2 treasure, 2 empty, 2 mimic (medium tier; replaces Zombie Dice's yellow body).
+- **4 yellow dice** — 2 treasure, 2 empty, 2 mimic (medium tier).
 - **3 red dice** — 1 treasure, 2 empty, 3 mimic (dangerous tier).
 
 The goal is to collect **13 treasures**. After each roll the player chooses to *bank* their treasures and pass the turn, or *push their luck* and roll again. Empty-chest dice stay on the table and are re-rolled with new dice drawn from the cup to bring the next roll back to 3 dice. **Three mimics in a single turn busts the player and wipes their treasures for that turn.** First to 13 treasures wins, with all other players getting one final turn to tie or beat them.

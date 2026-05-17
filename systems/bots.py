@@ -120,7 +120,7 @@ def lizzie_strategy(context: BotContext) -> BotDecision:
     for the rest of the turn drops sharply, so she pushes regardless of
     the thresholds above. That same "statistically safe" instinct is
     what drops her from Hard into Medium tier — sometimes the remaining
-    greens / purples still bust her.
+    greens / yellows still bust her.
     """
     if context.red_dice_remaining == 0:
         return BotDecision.ROLL

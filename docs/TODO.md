@@ -45,6 +45,8 @@ This file tracks work in **phases**. Each phase has a clear goal; finish a phase
 
 **Goal:** Replace the 1/3-1/3-1/3 placeholder bag from Phase 0 with the real Zombie Dice bag: 13 dice across three color tiers with different face distributions, and reintroduce Lizzie.
 
+> **Post-Phase 1 revision (2026-05-16).** The medium tier was renamed `PURPLE → YELLOW` to match Zombie Dice naming; the felt no longer uses the per-color chest / mimic / treasure PNGs that the original Phase 1 pass shipped. The renderer now draws the colored 1-6 pip faces from `six_sided_die.png` and picks the pip number via a per-color outcome → face band (see `systems/outcomes.py::OUTCOME_FACE_NUMBERS` and `docs/ARCHITECTURE.md` §3.4). The right-side stats panel uses three flat, color-agnostic icons (`mimic.png` / `treasure.png` / `empty_chest.png`). The standalone per-color PNGs stay on disk for possible later use but are no longer mapped in `AssetPaths`. Historical `[x]` items below stay marked complete as a record; the parentheticals reflect the *original* Phase 1 implementation, not the revised state.
+
 ### Rules engine
 - [x] Build the 13-die bag with the correct color distribution (6 green, 4 purple, 3 red). *(Purple replaces Zombie Dice's yellow body color; counts live in `BagSettings.DICE_PER_COLOR`.)*
 - [x] Draw 3 dice per roll; replenish drawn-from-empty-chest holdovers back to 3 each subsequent roll, drawing fresh dice from the bag. *(Already shipped in Phase 0; held-overs now keep their original color across re-rolls.)*

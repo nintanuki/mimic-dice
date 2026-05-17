@@ -110,7 +110,7 @@ class GameManager:
 
         # -------- UI panels --------
         self.message_log = MessageLog()
-        self.stats_panel = StatsPanel(self.dice_roller.settled_sprites)
+        self.stats_panel = StatsPanel()
 
         # -------- Post-processing --------
         self.full_screen = False
@@ -475,7 +475,6 @@ class GameManager:
                 PlayerView(name=p.name, score=p.score) for p in self.players
             ],
             active_player_index=self._current_player_index,
-            set_aside_colors=self._turn_engine.set_aside_colors,
             set_aside_outcomes=self._turn_engine.set_aside_outcomes,
         )
 

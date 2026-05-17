@@ -4,8 +4,10 @@ An `AnimatedDie` is owned by a `DiceRoller` and constrained by a `DiceTray`.
 It has two visual states:
   * Rolling - cycles through the shared white tumble frames; the frame rate
     scales with the die's speed so fast dice visibly spin faster.
-  * Settled - shows the single sprite keyed by `(pending_color, pending_outcome)`,
-    which renders the per-color chest / mimic / treasure art.
+  * Settled - shows the (color, outcome) face sprite chosen at settle time
+    from `face_sprites[(pending_color, pending_outcome)]`, so the art on
+    the felt reads as "green smiling treasure" or "red angry mimic"
+    rather than as a numbered pip face.
 
 Physics notes:
   * Velocity uses pixels/second, integrated each frame by `dt`.
@@ -19,9 +21,9 @@ Color- and outcome-driven settle sprite
 ---------------------------------------
 Before calling `roll()`, the rules engine sets `die.pending_color` and
 `die.pending_outcome`. When the die settles, `_settle()` looks up the
-matching settled sprite in `settled_sprites[(color, outcome)]` and renders
-it. The tumble row stays shared (all colors mid-air look the same) — this
-keeps memory low and emphasises the outcome-reveal at settle time.
+matching (color, outcome) PNG and renders it. The tumble row is shared
+(every color looks the same in flight) so memory stays low and the
+outcome reveal happens cleanly at rest.
 """
 
 import math
@@ -39,29 +41,30 @@ class AnimatedDie:
 
     def __init__(
         self,
-        settled_sprites: dict[tuple[DieColor, Outcome], pygame.Surface],
+        face_sprites: dict[tuple[DieColor, Outcome], pygame.Surface],
         tumble_sprites: list[pygame.Surface],
     ):
         """Store the sprite frames; the die stays idle until `roll()` runs.
 
         Args:
-            settled_sprites: Map from (color, outcome) to the single settled
-                sprite for that combination. At settle time the die picks
-                the sprite keyed by `(pending_color, pending_outcome)`.
+            face_sprites:    Map from `(color, outcome)` to the settled
+                             face PNG for that pairing. At settle time the
+                             die looks up `(pending_color, pending_outcome)`
+                             directly and blits the matching art.
             tumble_sprites:  Mid-tumble frames cycled while the die moves.
-                Shared across every color (one white tumble row).
+                             Shared across every color (one white tumble row).
         """
-        self.settled_sprites = settled_sprites
+        self.face_sprites = face_sprites
         self.tumble_sprites = tumble_sprites
 
         # Use any sprite to derive the die's rendered size; every sprite is
         # the same source tile size scaled by `DiceSettings.SCALE`.
-        first_sprite = next(iter(settled_sprites.values()))
+        first_sprite = next(iter(face_sprites.values()))
         self.size = first_sprite.get_width()
 
         # `pending_color` + `pending_outcome` are set by DiceRoller (from the
         # rules engine) before each roll. `_settle()` reads both to pick the
-        # right settled sprite.
+        # right pip face within the right color.
         self.pending_color: Optional[DieColor] = None
         self.pending_outcome: Optional[Outcome] = None
         # The sprite shown once the die has settled.
@@ -161,19 +164,22 @@ class AnimatedDie:
             )
 
     def _settle(self) -> None:
-        """Stop the die and pick the settled sprite from (color, outcome).
+        """Stop the die and pick the (color, outcome) face sprite.
 
-        If either `pending_color` or `pending_outcome` is missing, the die
-        falls back to the first sprite in the map so a misuse renders
-        something visible rather than crashing.
+        With one PNG per (color, outcome) pair the renderer no longer
+        needs to roll a numbered pip — it looks the art up directly. If
+        either `pending_color` or `pending_outcome` is missing the die
+        falls back to an arbitrary sprite so a misuse renders something
+        visible rather than crashing.
         """
         self.is_rolling = False
         self.velocity.update(0, 0)
-        key = (self.pending_color, self.pending_outcome)
-        if key in self.settled_sprites:
-            self._settled_sprite = self.settled_sprites[key]
-        else:
-            self._settled_sprite = next(iter(self.settled_sprites.values()))
+        if self.pending_color is None or self.pending_outcome is None:
+            self._settled_sprite = next(iter(self.face_sprites.values()))
+            return
+        self._settled_sprite = self.face_sprites[
+            (self.pending_color, self.pending_outcome)
+        ]
 
     # -------------------------
     # UPDATE / DRAW

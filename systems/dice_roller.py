@@ -10,8 +10,9 @@ Per frame, GameManager calls `update(dt)` then `draw(surface)`. To trigger
 a new roll driven by the rules engine, GameManager calls
 `roll_with_results(colors, outcomes)`, which assigns each die its
 pre-decided color *and* Outcome and then throws it. Carrying both keeps
-the displayed art (per-color chest / mimic / treasure) consistent with
-both the die's color and the outcome the engine resolved.
+the displayed art consistent with both the die's color (which tier of
+face PNG to draw from) and the outcome the engine resolved (which of
+the three face PNGs in that color: MIMIC, EMPTY, or TREASURE).
 
 Dice persistence within a turn
 ------------------------------
@@ -28,10 +29,12 @@ the table; your footsteps are the only thing you re-roll.
 
 Sprite sources
 --------------
-Mid-tumble frames come from the shared white tumble row of the original
-six-sided sheet, so every color looks the same in the air. The settled
-art comes from twelve standalone PNGs — three outcomes × three colors —
-loaded from the paths listed in `AssetPaths.SETTLED_SPRITES`.
+Tumble frames come from a single-row sheet
+(`AssetPaths.DIE_TUMBLE_SHEET`) shared across every color so every die in
+flight reads identically. Settled faces are one PNG per (color, outcome)
+pair listed in `AssetPaths.DIE_FACE_SPRITES`: green/yellow/red bodies
+each with a MIMIC, EMPTY, and TREASURE face. The color tells the player
+how risky the die was; the face tells them what happened on this roll.
 """
 
 import pygame
@@ -52,24 +55,23 @@ class DiceRoller:
         Args:
             window_size: Initial (width, height) of the display surface.
         """
-        # Tumble row stays on the original six-sided sheet because every
-        # color shares the same in-air silhouette; that keeps memory low
-        # and lets the per-color art read clearly only at settle time.
-        sheet = SpriteSheet(AssetPaths.DICE_SHEET)
+        # Tumble row is shared by every color — every die in flight reads
+        # the same in-air silhouette, which keeps memory low and means the
+        # color/outcome reveal lands at settle time.
+        tumble_sheet = SpriteSheet(AssetPaths.DIE_TUMBLE_SHEET)
         self.tumble_sprites = self._load_sheet_row(
-            sheet, AssetPaths.DIE_TUMBLE_ROW, AssetPaths.DIE_TUMBLE_FRAME_COUNT
+            tumble_sheet, 0, AssetPaths.DIE_TUMBLE_FRAME_COUNT
         )
 
-        # One settled sprite per (color, outcome) loaded from standalone
-        # PNGs. The map's keys are the actual enums; AssetPaths uses string
-        # tuples (color.value, outcome.value) so the asset table stays
-        # readable without importing the enums into settings.
-        self.settled_sprites: dict[tuple[DieColor, Outcome], pygame.Surface] = {
-            (DieColor(color_value), Outcome(outcome_value)):
-                self._load_settled_sprite(path)
-            for (color_value, outcome_value), path
-            in AssetPaths.SETTLED_SPRITES.items()
-        }
+        # face_sprites: (DieColor, Outcome) -> Surface. The settled art is
+        # one PNG per (color, outcome) pair; the renderer simply looks up
+        # the die's resolved (color, outcome) at settle time. No numbered
+        # pip step anymore — the face *is* the outcome.
+        self.face_sprites: dict[tuple[DieColor, Outcome], pygame.Surface] = {}
+        for (color_value, outcome_value), path in AssetPaths.DIE_FACE_SPRITES.items():
+            color = DieColor(color_value)
+            outcome = Outcome(outcome_value)
+            self.face_sprites[(color, outcome)] = self._load_face_sprite(path)
 
         self.tray = DiceTray(window_size)
         # Grows during a turn as held-over EMPTY dice re-roll and fresh
@@ -99,13 +101,21 @@ class DiceRoller:
         ]
 
     @staticmethod
-    def _load_settled_sprite(path: str) -> pygame.Surface:
-        """Load one standalone settled sprite from `path`, scaled to match dice."""
+    def _load_face_sprite(path: str) -> pygame.Surface:
+        """Load one settled-face PNG and scale it up to match the tumble row.
+
+        Args:
+            path: Path to a 16x16 (color, outcome) face PNG.
+
+        Returns:
+            The image scaled by `DiceSettings.SCALE` so it lines up
+            pixel-for-pixel with the tumble frames on the felt.
+        """
         raw = pygame.image.load(path).convert_alpha()
-        width, height = raw.get_size()
         scale = DiceSettings.SCALE
         if scale == 1:
             return raw
+        width, height = raw.get_size()
         return pygame.transform.scale(raw, (width * scale, height * scale))
 
     def resize(self, window_size: tuple[int, int]) -> None:
@@ -170,7 +180,7 @@ class DiceRoller:
 
         # Fresh draws append as brand-new dice so the felt visually grows.
         for color, outcome in zip(colors[held_count:], outcomes[held_count:]):
-            die = AnimatedDie(self.settled_sprites, self.tumble_sprites)
+            die = AnimatedDie(self.face_sprites, self.tumble_sprites)
             die.pending_color = color
             die.pending_outcome = outcome
             die.roll(self.tray.rect)

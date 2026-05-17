@@ -118,32 +118,47 @@ class AssetPaths:
     """
 
     # ---- Files ----
-    # The tumble row still comes from the original six-sided sheet so
-    # dice in flight look the same regardless of their color. Settled
-    # dice render from the per-outcome PNGs further down.
-    DICE_SHEET = "assets/graphics/sprites/six_sided_die.png"
+    # Mid-tumble silhouette: a single row of frames shared by every color so
+    # every die in flight reads identically and the color/outcome reveal
+    # lands cleanly at settle time. Settled faces come from one PNG per
+    # (color, outcome) pair below — no more numbered pips.
+    DIE_TUMBLE_SHEET = "assets/graphics/sprites/extracted/white_classic_animation.png"
     TV = "assets/graphics/effects/tv.png"
 
-    # ---- Dice sprite sheet layout ----
-    DIE_TILE_SIZE = 16             # Source tile size on the sheet (square px).
-    DIE_TUMBLE_ROW = 14            # Row index for the shared white tumble poses.
-    DIE_TUMBLE_FRAME_COUNT = 6     # Number of mid-tumble frames in that row.
+    # ---- Dice sprite layout ----
+    DIE_TILE_SIZE = 16             # Source tile size (square px) for every die sprite.
+    DIE_TUMBLE_FRAME_COUNT = 6     # Frames in the shared tumble row.
 
-    # ---- Settled-die art (per-color, per-outcome single sprites) ----
-    # Keyed by (DieColor.value, Outcome.value) so DiceRoller can build the
-    # sprite map at load time without translating between enums and paths.
-    # White art exists in the folder for future use but is not currently
-    # mapped — only GREEN / PURPLE / RED dice live in the bag today.
-    SETTLED_SPRITES = {
-        ("green",  "MIMIC"):    "assets/graphics/sprites/mimic_green.png",
-        ("green",  "EMPTY"):    "assets/graphics/sprites/empty_chest_green.png",
-        ("green",  "TREASURE"): "assets/graphics/sprites/treasure_green.png",
-        ("purple", "MIMIC"):    "assets/graphics/sprites/mimic_purple.png",
-        ("purple", "EMPTY"):    "assets/graphics/sprites/empty_chest_purple.png",
-        ("purple", "TREASURE"): "assets/graphics/sprites/treasure_purple.png",
-        ("red",    "MIMIC"):    "assets/graphics/sprites/mimic_red.png",
-        ("red",    "EMPTY"):    "assets/graphics/sprites/empty_chest_red.png",
-        ("red",    "TREASURE"): "assets/graphics/sprites/treasure_red.png",
+    # ---- Per-(color, outcome) face PNGs ----
+    # Settled-face art keyed by `(DieColor.value, Outcome.value)`. At settle
+    # time `AnimatedDie` reads the die's (color, outcome) and blits the
+    # matching PNG directly — the color still tells the player how risky
+    # the die was (green = lucky, yellow = medium, red = dangerous) and
+    # the face now tells them what happened on this roll (angry mimic vs
+    # smiling treasure vs neutral empty), without a numbered-pip step in
+    # between. Keyed by the string values so this dict can sit in
+    # settings.py without importing the enums (avoids a cycle).
+    DIE_FACE_SPRITES = {
+        ("green",  "MIMIC"):    "assets/graphics/sprites/green_mimic_die.png",
+        ("green",  "EMPTY"):    "assets/graphics/sprites/green.png",
+        ("green",  "TREASURE"): "assets/graphics/sprites/green_treasure_die.png",
+        ("yellow", "MIMIC"):    "assets/graphics/sprites/yellow_mimic_die.png",
+        ("yellow", "EMPTY"):    "assets/graphics/sprites/yellow.png",
+        ("yellow", "TREASURE"): "assets/graphics/sprites/yellow_treasure_die.png",
+        ("red",    "MIMIC"):    "assets/graphics/sprites/red_mimic_die.png",
+        ("red",    "EMPTY"):    "assets/graphics/sprites/red.png",
+        ("red",    "TREASURE"): "assets/graphics/sprites/red_treasure_die.png",
+    }
+
+    # ---- Flat (color-agnostic) outcome icons ----
+    # Used by `StatsPanel` to show what the active player has set aside this
+    # turn. The right-side panel intentionally drops the per-color theme so a
+    # banked green TREASURE and a banked red TREASURE look identical there;
+    # the felt is where the color story lives.
+    FLAT_OUTCOME_SPRITES = {
+        "MIMIC":    "assets/graphics/sprites/mimic.png",
+        "EMPTY":    "assets/graphics/sprites/empty_chest.png",
+        "TREASURE": "assets/graphics/sprites/treasure.png",
     }
 
 
@@ -310,7 +325,7 @@ class BagSettings:
 
     DICE_PER_COLOR = {
         _DieColor.GREEN:  6,       # "Lucky" tier  — most common in the bag.
-        _DieColor.PURPLE: 4,       # "Medium" tier — replaces Zombie Dice's yellow body.
+        _DieColor.YELLOW: 4,       # "Medium" tier — matches Zombie Dice's yellow body.
         _DieColor.RED:    3,       # "Hard" tier   — bust-risk tier, scarcest.
     }
     TOTAL_DICE = sum(DICE_PER_COLOR.values())  # Always 13; derived to stay in sync.
