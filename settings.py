@@ -200,7 +200,7 @@ class MessageLogSettings:
 
 
 class StatsPanelSettings:
-    """Right-side stats panel: player name, banked score, this-turn dice.
+    """Right-side stats panel: player roster + banked scores + this-turn dice.
 
     The panel renders inside the rect returned by `ui.layout.stats_panel_rect`.
     Constants here cover only the panel's *contents*; the frame itself uses
@@ -210,13 +210,41 @@ class StatsPanelSettings:
     TEXT_PADDING = 16              # Inset between the panel frame and its text (px).
     LINE_HEIGHT = 18               # Vertical spacing between text rows (px).
     SECTION_GAP = 18               # Gap above each new section heading (px).
+    PLAYER_ROW_HEIGHT = 22         # Vertical space allotted to each player roster row (px).
     HELD_DICE_SPACING = 4          # Horizontal gap between two adjacent held-die thumbs (px).
     HELD_DICE_ROW_GAP = 6          # Vertical gap between thumb rows when they wrap (px).
     HELD_DICE_LABEL_GAP = 6        # Gap between a section label and its thumb row (px).
+    ACTIVE_MARKER = "> "           # Prefix drawn beside the currently-rolling player's name.
+    INACTIVE_MARKER = "  "         # Same-width filler so non-active rows line up with active ones.
 
-    # The Phase 0 single-player build only ever shows one human player.
-    # Phase 2 replaces this with the lobby-selected name(s).
+    # Default name for the lone human seat in Phase 0. Phase 2 replaces this
+    # with the lobby-selected name(s).
     HUMAN_PLAYER_NAME = "PLAYER 1"
+
+
+class BotSettings:
+    """Pacing and roster for the AI opponents.
+
+    The Phase 0 single-player demo seats one or more bots opposite the human
+    so the new player-rotation flow has something to alternate with. The
+    legacy bots in `legacy/zombie-dice-bots/` are reference-only and not
+    imported; Phase 0 reimplements two simple strategies here so the engine
+    has something to drive against without coupling to the legacy module.
+    """
+
+    # Seconds to wait after a bot's dice settle before the bot makes its
+    # next decision (roll again or bank). Gives the player a beat to read
+    # what just happened on the felt and in the log.
+    AFTER_ROLL_DELAY_S = 0.85
+
+    # Seconds to wait after a bot banks or busts before the next player's
+    # turn begins. Longer than AFTER_ROLL_DELAY_S so the bank/bust message
+    # has time to type out.
+    END_OF_TURN_DELAY_S = 1.10
+
+    # Initial seat order: human first, then the bots. Phase 2's lobby will
+    # replace this with a player-configured lineup.
+    DEFAULT_BOT_NAMES = ("ALICE", "BOB")
 
 
 class GameOverSettings:

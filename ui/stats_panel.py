@@ -1,13 +1,17 @@
-"""Stats panel: right-side column showing player, score, and held dice.
+"""Stats panel: right-side column showing the roster and held-dice pile.
 
 The panel reads three things every frame:
 
-    * Player name   - shown at the top.
-    * Banked score  - the running total of TREASURE banked across turns.
-    * Held dice     - the MIMIC + TREASURE dice set aside so far this turn.
-                      EMPTY dice are in-hand (re-rolled each turn) and
-                      stay in the tray, so they are intentionally absent
-                      from this panel.
+    * `players`              - the seat list (human + bots), each with a
+                               banked-score running total.
+    * `active_player_index`  - whose turn is currently up; that row gets a
+                               highlight and the held-dice section shows
+                               their this-turn pile.
+    * `set_aside_faces` +
+      `set_aside_outcomes`   - the MIMIC + TREASURE dice the active player
+                               has accumulated so far this turn. EMPTY dice
+                               are on the felt (held over) and are
+                               intentionally absent here.
 
 The panel is read-only: `GameManager` passes the data each frame; the panel
 draws its own frame (filled rounded rect + border) so callers don't have
@@ -15,13 +19,14 @@ to coordinate frame ordering.
 
 The held-dice section shows two clearly-labelled rows so a glance tells
 the player both *how close to busting* they are and *how much treasure
-they'd lock in if they banked right now*. Treasure persists across turns
-through the banked-score number above; the held-treasure thumbs reset
-to empty on the next `start_turn()` (bank or bust), same as the held
-mimics. That matches the player's mental model of "carry your earned
-score forward, but the dice you set aside this turn reset on every new
-turn".
+they'd lock in if they banked right now*. Banked treasure persists in
+each player's `score` (rendered in the roster); the held-dice thumbs
+reset on the next `start_turn()` (bank or bust), matching the player's
+mental model of "carry your earned score forward, but the dice you set
+aside this turn reset on every new turn".
 """
+
+from dataclasses import dataclass
 
 import pygame
 
@@ -34,8 +39,16 @@ from settings import (
 from systems.outcomes import Outcome
 
 
+@dataclass(frozen=True)
+class PlayerView:
+    """The minimum the panel needs to render one roster row."""
+
+    name: str
+    score: int
+
+
 class StatsPanel:
-    """Render the player name, banked score, and this-turn held dice."""
+    """Render the player roster, banked scores, and this-turn held dice."""
 
     def __init__(
         self,
@@ -90,6 +103,51 @@ class StatsPanel:
         text_surface = font.render(text, False, color)
         surface.blit(text_surface, (x, y))
         return y + text_surface.get_height()
+
+    def _draw_roster(
+        self,
+        surface: pygame.Surface,
+        rect: pygame.Rect,
+        players: list[PlayerView],
+        active_index: int,
+        y: int,
+    ) -> int:
+        """Draw one row per player; active player gets a marker + highlight.
+
+        Returns the y just below the last row.
+        """
+        left = rect.left + StatsPanelSettings.TEXT_PADDING
+        right = rect.right - StatsPanelSettings.TEXT_PADDING
+
+        for index, player in enumerate(players):
+            is_active = index == active_index
+            marker = (
+                StatsPanelSettings.ACTIVE_MARKER
+                if is_active
+                else StatsPanelSettings.INACTIVE_MARKER
+            )
+            name_color = (
+                ColorSettings.LOG_HIGHLIGHT_TREASURE
+                if is_active
+                else ColorSettings.STATS_TEXT_COLOR
+            )
+
+            name_surface = self.name_font.render(
+                f"{marker}{player.name}", False, name_color,
+            )
+            score_surface = self.score_font.render(
+                str(player.score), False, ColorSettings.STATS_TEXT_COLOR,
+            )
+
+            surface.blit(name_surface, (left, y))
+            # Right-align the score in the row so multi-digit scores still
+            # land flush with the panel inset.
+            surface.blit(
+                score_surface,
+                (right - score_surface.get_width(), y),
+            )
+            y += StatsPanelSettings.PLAYER_ROW_HEIGHT
+        return y
 
     def _draw_held_row(
         self,
@@ -173,41 +231,33 @@ class StatsPanel:
         self,
         surface: pygame.Surface,
         rect: pygame.Rect,
-        player_name: str,
-        score: int,
+        players: list[PlayerView],
+        active_player_index: int,
         set_aside_faces: list[int],
         set_aside_outcomes: list[Outcome],
     ) -> None:
-        """Paint the panel: frame, player line, score line, held dice rows.
+        """Paint the panel: frame, roster, held-dice rows for the active player.
 
         Args:
-            surface:            Target surface.
-            rect:               Panel rect from `ui.layout.stats_panel_rect`.
-            player_name:        Display name shown at the top of the panel.
-            score:              Banked treasure score across all turns so far.
-            set_aside_faces:    Face values set aside this turn (parallel
-                                to `set_aside_outcomes`).
-            set_aside_outcomes: Outcomes set aside this turn (MIMIC + TREASURE).
+            surface:             Target surface.
+            rect:                Panel rect from `ui.layout.stats_panel_rect`.
+            players:             All seats in turn order (human + bots).
+            active_player_index: Index into `players` of the player who is
+                                 currently rolling.
+            set_aside_faces:     Face values set aside this turn (parallel
+                                 to `set_aside_outcomes`).
+            set_aside_outcomes:  Outcomes set aside this turn (MIMIC + TREASURE).
         """
         self._draw_frame(surface, rect)
 
-        left = rect.left + StatsPanelSettings.TEXT_PADDING
         y = rect.top + StatsPanelSettings.TEXT_PADDING
 
-        # Player and score live at the top so the eye lands on them first.
-        y = self._draw_text(
-            surface, self.name_font, player_name, left, y,
-            ColorSettings.STATS_TEXT_COLOR,
-        )
-        y += StatsPanelSettings.LINE_HEIGHT - self.name_font.get_height()
-        y = self._draw_text(
-            surface, self.score_font, f"SCORE: {score}", left, y,
-            ColorSettings.LOG_HIGHLIGHT_TREASURE,
-        )
+        # Roster up top so the eye lands on who-is-who first.
+        y = self._draw_roster(surface, rect, players, active_player_index, y)
 
-        # Held dice (this turn only). Treasure first because it's the
-        # "good" pile the player is trying to grow; mimics below so the
-        # bust risk reads as the cost of pushing your luck.
+        # Held dice (active player, this turn only). Treasure first because
+        # it's the "good" pile the player is trying to grow; mimics below
+        # so the bust risk reads as the cost of pushing your luck.
         treasure_faces, mimic_faces = self._split_set_aside_by_outcome(
             set_aside_faces, set_aside_outcomes,
         )

@@ -19,19 +19,19 @@ This file tracks work in **phases**. Each phase has a clear goal; finish a phase
 - [x] Render each rolled die using the sprite sheet row that matches its outcome: MIMIC → row 3 (red), EMPTY → row 2 (grey), TREASURE → row 9 (green). All dice still have equal odds; the color is purely a readability cue.
 
 ### AI opponents
-- [ ] Copy the bots from `legacy/zombie-dice-bots/` into `systems/bots/` and adapt them to drive our engine (no edits to `legacy/`).
-- [ ] Provide a thin adapter that gives each bot the same `roll()` dict shape it expects (`brains`, `shotgun`, `footsteps`, `rolls`), backed by our bag and outcomes.
-- [ ] Exclude Lizzie for Phase 0 (her strategy reads red-dice count, which is meaningless without real color variation).
-- [ ] Bot pacing delay so the player can see each AI roll resolve.
+- [x] Copy the bots from `legacy/zombie-dice-bots/` into `systems/bots/` and adapt them to drive our engine (no edits to `legacy/`). *(Phase 0 ships two — Alice and Bob — reimplemented in `systems/bots.py` as a `decide(t, m) -> BotDecision` interface. The rest of the legacy roster lands when more personalities are needed.)*
+- [x] Provide a thin adapter that gives each bot the same `roll()` dict shape it expects (`brains`, `shotgun`, `footsteps`, `rolls`), backed by our bag and outcomes. *(Replaced by the simpler per-decision interface above; legacy dict-shaped adapter is no longer needed.)*
+- [x] Exclude Lizzie for Phase 0 (her strategy reads red-dice count, which is meaningless without real color variation).
+- [x] Bot pacing delay so the player can see each AI roll resolve. *(`BotSettings.AFTER_ROLL_DELAY_S` / `END_OF_TURN_DELAY_S`, ticked by `GameManager._tick_bot`.)*
 
 ### UI windows
-- [ ] Tall thin **stats panel** on the right: player names, scores, current-turn indicator, timer/round counter, bot difficulty icons (`aku.png` skulls for difficulty tier, `lau.png` flower for tutorial). *(Single-player skeleton landed: player name, banked score, this-turn TREASURE + MIMIC thumbs. Multi-player rows + indicators + difficulty icons land with the AI adapter.)*
+- [ ] Tall thin **stats panel** on the right: player names, scores, current-turn indicator, timer/round counter, bot difficulty icons (`aku.png` skulls for difficulty tier, `lau.png` flower for tutorial). *(Multi-player roster + active-turn `>` marker + per-player score + active-player held-dice rows are in. Timer / round counter / `aku.png` skulls and `lau.png` flowers are not yet drawn.)*
 - [x] Wide **message log** on the bottom with a typewriter reveal ported from Dungeon Digger.
 - [x] Wire log to game events: rolls, MIMIC, BUST, BANK, turn changes, WIN. (Bot turn changes land with the AI adapter.)
 
 ### Game flow
-- [ ] New-game setup picks the human plus 3 random non-Lizzie bots. Lineup re-rolls each new game.
-- [ ] Game loop: turn rotation, roll/bank inputs for the human, automatic turns for bots.
+- [ ] New-game setup picks the human plus 3 random non-Lizzie bots. Lineup re-rolls each new game. *(Current setup is fixed: human + Alice + Bob from `BotSettings.DEFAULT_BOT_NAMES`. Random 3-bot lineup lands when the bot roster grows past two.)*
+- [x] Game loop: turn rotation, roll/bank inputs for the human, automatic turns for bots.
 - [ ] GAME OVER screen showing final scores; press A or ENTER to start a fresh random game. No other prompts.
 
 ### Smoke test + doc updates

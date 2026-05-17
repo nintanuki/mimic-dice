@@ -4,7 +4,7 @@
 dice subsystem. It owns:
   * one `DiceTray` (the bounded play area),
   * the shared sprite frames (loaded once, shared by every die),
-  * a list of `AnimatedDie` instances (`DiceSettings.COUNT` of them).
+  * a list of `AnimatedDie` instances that *grows* over the course of a turn.
 
 Per frame, GameManager calls `update(dt)` then `draw(surface)`. To trigger
 a new roll driven by the rules engine, GameManager calls
@@ -12,12 +12,25 @@ a new roll driven by the rules engine, GameManager calls
 pre-decided face value *and* Outcome and then throws it. Carrying both
 keeps the displayed pip count consistent with the outcome color.
 
+Dice persistence within a turn
+------------------------------
+A turn starts with an empty dice list. Each `roll_with_results` call:
+  1. Re-throws every die currently sitting on the felt as EMPTY (those
+     are the held-overs; they get fresh faces / outcomes from the
+     leading entries of `faces` and `outcomes`).
+  2. Appends new `AnimatedDie` instances for any remaining (face, outcome)
+     pairs — these are the fresh draws from the bag.
+Dice that settled as MIMIC or TREASURE on an earlier roll never move
+again until `clear_for_new_turn()` is called (bank or bust). The visual
+result mirrors physical Zombie Dice: your brains/shotguns pile grows on
+the table; your footsteps are the only thing you re-roll.
+
 Sprite rows
 -----------
 The die sheet has separate rows for each outcome color:
-  * Row `DIE_MIMIC_ROW`   (red)  — MIMIC outcome.
-  * Row `DIE_EMPTY_ROW`   (grey) — EMPTY outcome.
-  * Row `DIE_TREASURE_ROW`(green)— TREASURE outcome.
+  * Row `DIE_MIMIC_ROW`   (red)    — MIMIC outcome.
+  * Row `DIE_EMPTY_ROW`   (white)  — EMPTY outcome.
+  * Row `DIE_TREASURE_ROW`(yellow) — TREASURE outcome.
 All three rows are loaded at construction and shared across every die so
 adding more dice is essentially free in terms of memory.
 """
@@ -32,10 +45,10 @@ from utils.spritesheet import SpriteSheet
 
 
 class DiceRoller:
-    """Owns the tray, shared sprite frames, and every `AnimatedDie`."""
+    """Owns the tray, shared sprite frames, and every `AnimatedDie` in play."""
 
     def __init__(self, window_size: tuple[int, int]):
-        """Load sprites, build the tray, and create `DiceSettings.COUNT` dice.
+        """Load sprites and build the tray. The dice list starts empty.
 
         Args:
             window_size: Initial (width, height) of the display surface.
@@ -53,10 +66,9 @@ class DiceRoller:
         )
 
         self.tray = DiceTray(window_size)
-        self.dice: list[AnimatedDie] = [
-            AnimatedDie(self.outcome_sprites, self.tumble_sprites)
-            for _ in range(DiceSettings.COUNT)
-        ]
+        # Grows during a turn as held-over EMPTY dice re-roll and fresh
+        # draws append; reset on `clear_for_new_turn()`.
+        self.dice: list[AnimatedDie] = []
 
     # -------------------------
     # SETUP
@@ -93,31 +105,56 @@ class DiceRoller:
         """True when every die has come to rest (none still rolling)."""
         return all(not die.is_rolling for die in self.dice)
 
+    def _held_over_dice(self) -> list[AnimatedDie]:
+        """Return the settled EMPTY dice — the ones a new roll will re-throw.
+
+        Dice that are still rolling are skipped (a guard call to
+        `roll_with_results` during a tumble would be a logic error elsewhere,
+        but skipping keeps this method total).
+        """
+        return [
+            die for die in self.dice
+            if not die.is_rolling and die.pending_outcome == Outcome.EMPTY
+        ]
+
     # -------------------------
     # ACTIONS
     # -------------------------
 
     def roll_with_results(self, faces: list[int], outcomes: list[Outcome]) -> None:
-        """Assign a pre-decided face and Outcome to each die, then throw them all.
+        """Re-throw any held-over EMPTY dice and append fresh draws.
 
-        The rules engine calls this so the visual result always matches the
-        logical result: each die settles onto the face color matching its
-        outcome *and* the pip count matching its face value.
-
-        Only the first `min(len(faces), len(outcomes))` dice are thrown;
-        any extra dice (from a previous roll's held-overs that aren't in
-        play this roll) remain as-is. Callers should pass exactly
-        `DiceSettings.COUNT` faces and outcomes to throw all dice.
+        The rules engine returns its `RollResult.faces` / `outcomes` ordered
+        held-over first, fresh draws after; we mirror that here. Existing
+        MIMIC and TREASURE dice on the felt are left alone — they are the
+        player's set-aside pile and only clear at turn end.
 
         Args:
-            faces:    Pre-decided 1–6 face value per die, ordered to match
-                      `self.dice` (index 0 = die 0, etc.).
+            faces:    Pre-decided 1–6 face value per die, held-overs first.
             outcomes: Matching Outcome per die, parallel to `faces`.
         """
-        for die, face, outcome in zip(self.dice, faces, outcomes):
+        held_over_dice = self._held_over_dice()
+        held_count = len(held_over_dice)
+
+        # Re-throw the held-overs with the leading slice of the new results.
+        for die, face, outcome in zip(
+            held_over_dice, faces[:held_count], outcomes[:held_count]
+        ):
             die.pending_outcome = outcome
             die.pending_face = face
             die.roll(self.tray.rect)
+
+        # Fresh draws append as brand-new dice so the felt visually grows.
+        for face, outcome in zip(faces[held_count:], outcomes[held_count:]):
+            die = AnimatedDie(self.outcome_sprites, self.tumble_sprites)
+            die.pending_outcome = outcome
+            die.pending_face = face
+            die.roll(self.tray.rect)
+            self.dice.append(die)
+
+    def clear_for_new_turn(self) -> None:
+        """Drop every die on the felt. Called on bank or bust."""
+        self.dice = []
 
     # -------------------------
     # UPDATE / DRAW

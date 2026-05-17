@@ -242,9 +242,11 @@ The bag is never drawn. It is a data structure — players reach into it concept
 
 `bank()` commits `turn_treasures` to the caller's score and sets `status = BANKED`.
 
-### 9.3 Outcome- and face-driven sprite rows
+### 9.3 Outcome- and face-driven sprite rows + on-felt persistence
 
-`TurnEngine.roll()` returns a `RollResult` whose `faces` and `outcomes` are parallel lists ordered so that held-over dice come first and freshly-drawn dice follow. `GameManager._do_roll()` calls `dice_roller.roll_with_results(faces, outcomes)`, which assigns each die's `pending_outcome` *and* `pending_face` before throwing it. When the die settles, `AnimatedDie._settle()` picks the sprite from `outcome_sprites[pending_outcome][pending_face - 1]`, so the column choice mirrors the engine's rolled face value — a die showing "1" is always MIMIC, "6" always TREASURE.
+`TurnEngine.roll()` returns a `RollResult` whose `faces` and `outcomes` are parallel lists ordered so that held-over dice come first and freshly-drawn dice follow. `GameManager._do_roll()` calls `dice_roller.roll_with_results(faces, outcomes)`, which re-throws the felt's current held-over EMPTY dice with the leading entries of the lists and **appends new `AnimatedDie` instances** for any remaining (face, outcome) pairs. Dice that settled as MIMIC or TREASURE on a previous roll are left alone — they stay on the felt as the player's set-aside pile until `clear_for_new_turn()` is called on bank or bust. This mirrors physical Zombie Dice: brains/shotguns pile up on the table; footsteps are the only thing you re-roll.
+
+When a die settles, `AnimatedDie._settle()` picks the sprite from `outcome_sprites[pending_outcome][pending_face - 1]`, so the column choice mirrors the engine's rolled face value — a die showing "1" is always MIMIC, "6" always TREASURE.
 
 Row colors were verified by pixel-sampling `six_sided_die.png`. The 12-color sheet has no grey row, so EMPTY uses the white row as the most neutral stand-in:
 
@@ -258,11 +260,19 @@ This is Phase 0 placeholder behavior. Phase 3 replaces the numbered faces with t
 
 ### 9.4 Stats panel
 
-`ui/stats_panel.py::StatsPanel` paints the right-side column every frame from data passed in by `GameManager`: player name, banked score, and the set-aside faces + outcomes for this turn. Treasure thumbs and mimic thumbs render on separate labeled rows; both rows reset on `TurnEngine.start_turn()` (bank or bust), while the banked score persists across turns. The panel shares the tray's `outcome_sprites` so thumb art always matches what landed in the tray.
+`ui/stats_panel.py::StatsPanel` paints the right-side column every frame from data passed in by `GameManager`: the **roster** of players (human + bots) with their banked scores, and the **set-aside faces + outcomes** for the currently-active player's turn. The active player's row gets the active marker (`>`) and a highlight color. Treasure thumbs and mimic thumbs render on separate labeled rows; both rows reset on `TurnEngine.start_turn()` (bank or bust), while banked scores persist on each `Player` until the next game. The panel shares the tray's `outcome_sprites` so thumb art always matches what landed in the tray.
 
 ### 9.5 Win condition (Phase 0 stub)
 
 The first player to bank enough treasure to reach `TurnSettings.WIN_SCORE` (13) triggers the final round. Phase 0 logs a WIN message and resets immediately; the full final-round rotation (every other player gets one more turn) is wired up as part of the Phase 0 Game Flow tasks.
+
+### 9.6 Players, rotation, and bots
+
+`GameManager.players` is the ordered seat list: a `Player` per seat with `name`, optional `bot`, and `score`. Phase 0 seats one human plus the names listed in `BotSettings.DEFAULT_BOT_NAMES` (`("ALICE", "BOB")`). `_current_player_index` rotates each time a turn ends.
+
+Bots live in `systems/bots.py`. Each `Bot` is a `(name, strategy)` pair where `strategy(turn_treasures, turn_mimics) -> BotDecision`. The strategy is consulted *after* each roll settles — never mid-tumble — and is shielded from busted states because `TurnEngine` flips status to `BUST` before the bot ever sees the post-roll counts. Phase 0 ships two: Alice (bank at 2 mimics) and Bob (bank at 2 treasures); both are deliberately easy so the human can test the demo without losing on the first try. Legacy bots in `legacy/zombie-dice-bots/` remain reference-only and are not imported.
+
+Bot pacing lives entirely in `GameManager._tick_bot`. After each roll settles or a turn ends, the `_bot_action_timer` is set to one of two values from `BotSettings` (`AFTER_ROLL_DELAY_S`, `END_OF_TURN_DELAY_S`). The same timer gates both bot decisions and post-turn advancement, so the loop reads naturally for human turns too (when there's no decision to make, only the post-turn advance ever fires).
 
 ---
 

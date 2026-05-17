@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import pygame
 import sys
+from dataclasses import dataclass
+from typing import Optional
 
 from systems.bag import Bag
+from systems.bots import Bot, BotDecision, make_bot
 from systems.dice_roller import DiceRoller
 from systems.outcomes import Outcome
 from systems.turn_engine import TurnEngine, TurnStatus
 from ui import layout
 from ui.message_log import MessageLog
-from ui.stats_panel import StatsPanel
+from ui.stats_panel import PlayerView, StatsPanel
 from crt import CRT
 from settings import (
     ScreenSettings,
@@ -19,8 +22,32 @@ from settings import (
     LayoutSettings,
     MessageLogSettings,
     StatsPanelSettings,
+    BotSettings,
     TurnSettings,
 )
+
+
+# -------------------------
+# PLAYER MODEL
+# -------------------------
+
+
+@dataclass
+class Player:
+    """A seat at the table — either the human or a bot personality.
+
+    `bot is None` means this seat is the human. Score persists across
+    every turn; per-turn state lives in the shared `TurnEngine`.
+    """
+
+    name: str
+    bot: Optional[Bot]
+    score: int = 0
+
+    @property
+    def is_human(self) -> bool:
+        """True for the lone human seat in Phase 0."""
+        return self.bot is None
 
 
 class GameManager:
@@ -50,17 +77,36 @@ class GameManager:
         # -------- Rules engine --------
         self._bag = Bag()
         self._turn_engine = TurnEngine(self._bag)
-        self._player_score: int = 0
-        # Simple flag: has a bank push crossed WIN_SCORE yet?
+        # Simple flag: has any bank push crossed WIN_SCORE yet this game?
         self._final_round_triggered: bool = False
 
+        # -------- Players --------
+        # Phase 0 seats one human plus the bots listed in BotSettings; the
+        # roster is fixed for the life of one game. Phase 2's lobby will
+        # let the player configure this.
+        self.players: list[Player] = [
+            Player(name=StatsPanelSettings.HUMAN_PLAYER_NAME, bot=None),
+        ] + [
+            Player(name=name, bot=make_bot(name))
+            for name in BotSettings.DEFAULT_BOT_NAMES
+        ]
+        self._current_player_index: int = 0
+
         # -------- Turn state --------
-        # waiting_for_roll: player pressed SPACE; dice are still in flight.
-        # We wait until all dice settle before accepting another SPACE or a
-        # BANK so the log has something concrete to report.
+        # _waiting_for_roll: dice are still in flight after a roll() call.
+        # We wait until all dice settle before accepting the next input.
         self._waiting_for_roll: bool = False
-        # Populated by _do_roll; read by _on_dice_settled once all dice rest.
+        # Set by _do_roll; read by _on_dice_settled.
         self._last_roll_result = None
+        # Countdown (seconds) gating the next bot action so the human has
+        # time to read what just happened. Negative = ready to act.
+        self._bot_action_timer: float = 0.0
+        # True between a bust/bank and the corresponding `_advance_to_next_turn`
+        # firing, so the pacing tick advances the turn instead of consulting
+        # the bot strategy.
+        self._turn_ending: bool = False
+        # Bumped on every turn change so the panel can announce who is up.
+        self._announced_current_player: int = -1
 
         # -------- UI panels --------
         self.message_log = MessageLog()
@@ -70,11 +116,10 @@ class GameManager:
         self.full_screen = False
         self.crt = CRT(self.screen)
 
-        # Start the first turn and greet the player. The log owns its own
-        # opening line; we don't echo it here so the welcome only appears
-        # once.
+        # Start the first turn and greet the player.
         self._turn_engine.start_turn()
         self.message_log.add_message(MessageLogSettings.WELCOME_LINE)
+        self._announce_current_player()
 
     # -------------------------
     # BOOT / SETUP
@@ -118,44 +163,65 @@ class GameManager:
         return False
 
     # -------------------------
+    # PLAYER ROTATION
+    # -------------------------
+
+    @property
+    def _current_player(self) -> Player:
+        """The player whose turn is currently active."""
+        return self.players[self._current_player_index]
+
+    def _announce_current_player(self) -> None:
+        """Log who's up — once per turn change."""
+        if self._announced_current_player == self._current_player_index:
+            return
+        player = self._current_player
+        self.message_log.add_message(f"{player.name}'S TURN.")
+        self._announced_current_player = self._current_player_index
+        # Reset bot pacing so the new bot doesn't act on its first frame.
+        self._bot_action_timer = BotSettings.AFTER_ROLL_DELAY_S
+
+    def _advance_to_next_turn(self) -> None:
+        """Clear the felt, rotate players, and start the new player's turn."""
+        self.dice_roller.clear_for_new_turn()
+        self._current_player_index = (
+            (self._current_player_index + 1) % len(self.players)
+        )
+        self._turn_engine.start_turn()
+        self._announce_current_player()
+
+    # -------------------------
     # TURN LOGIC
     # -------------------------
 
     def _do_roll(self) -> None:
-        """Ask the engine to roll, then throw the dice with the pre-decided results.
+        """Ask the engine to roll, then animate the dice with the pre-decided results.
 
-        Called when SPACE is pressed and the turn is still in ROLLING state.
-        All dice are animated; the turn result is processed once they settle.
+        Held-over EMPTY dice on the felt re-throw; fresh draws append as new
+        dice (see `DiceRoller.roll_with_results`).
         """
+        if self._waiting_for_roll:
+            return
         if not self._turn_engine.can_roll:
             return
 
         result = self._turn_engine.roll()
-
-        # Pad the lists to DiceSettings.COUNT so `roll_with_results` always
-        # gets exactly COUNT pairs (extra dice render as EMPTY filler at
-        # face 3, which is a neutral EMPTY-mapped pip count).
-        faces = list(result.faces)
-        outcomes = list(result.outcomes)
-        while len(faces) < 3:
-            faces.append(3)
-            outcomes.append(Outcome.EMPTY)
-
-        self.dice_roller.roll_with_results(faces, outcomes)
+        self.dice_roller.roll_with_results(list(result.faces), list(result.outcomes))
         self._waiting_for_roll = True
         self._last_roll_result = result
 
     def _on_dice_settled(self) -> None:
         """Called the first frame all dice settle after a roll.
 
-        Logs the roll result and checks for bust. Running totals live in the
-        stats panel now, so the log focuses on events: the roll itself and
-        any state change (bust / bank / win).
+        Logs the roll result and reacts to bust. Running totals live in the
+        stats panel, so the log only carries events (roll / bust / bank /
+        win / turn change).
         """
         result = self._last_roll_result
         self._waiting_for_roll = False
 
-        # Build a readable summary of this roll.
+        # Build a readable summary of this roll. Held-overs that re-rolled
+        # plus any fresh draws all show up here.
         mimic_count    = result.outcomes.count(Outcome.MIMIC)
         treasure_count = result.outcomes.count(Outcome.TREASURE)
         empty_count    = result.outcomes.count(Outcome.EMPTY)
@@ -172,12 +238,19 @@ class GameManager:
 
         if result.status == TurnStatus.BUST:
             self.message_log.add_message(
-                f"BUST!  {result.turn_mimics} MIMICS.  SCORE: {self._player_score}"
+                f"BUST!  {result.turn_mimics} MIMICS.  "
+                f"{self._current_player.name} SCORES 0."
             )
-            self._turn_engine.start_turn()
+            self._end_turn_after_delay()
+            return
+
+        # Roll resolved cleanly. Start (or reset) the bot pacing timer so
+        # the bot waits a beat before its next decision; human turns just
+        # leave this idle.
+        self._bot_action_timer = BotSettings.AFTER_ROLL_DELAY_S
 
     def _do_bank(self) -> None:
-        """Bank the current turn's treasure.
+        """Bank the current turn's treasure for the active player.
 
         Ignored if dice are still rolling, the turn is already over, or the
         player hasn't rolled yet this turn.
@@ -186,43 +259,104 @@ class GameManager:
             return
         if not self._turn_engine.can_roll:
             return
-        if self._turn_engine.turn_treasures == 0 and self._turn_engine.turn_mimics == 0:
+        if (
+            self._turn_engine.turn_treasures == 0
+            and self._turn_engine.turn_mimics == 0
+        ):
             # Player hasn't rolled yet this turn — nothing to bank.
             self.message_log.add_message("ROLL FIRST!")
             return
 
+        player = self._current_player
         banked = self._turn_engine.bank()
-        self._player_score += banked
+        player.score += banked
         self.message_log.add_message(
-            f"BANKED {banked} TREASURE.  TOTAL: {self._player_score}"
+            f"{player.name} BANKED {banked} TREASURE.  TOTAL: {player.score}"
         )
 
         # Win condition: first to WIN_SCORE triggers the final round.
-        # Phase 0 has no other players to give a final turn to, so for now
-        # we celebrate the win and reset; Phase 0 Game-Flow will replace
-        # this stub with the proper final-round logic.
-        if self._player_score >= TurnSettings.WIN_SCORE and not self._final_round_triggered:
+        # Phase 0 still ships a stub: announce the win and reset all
+        # scores. The proper final-round rotation lands with the rest of
+        # the Phase 0 Game-Flow tasks.
+        if player.score >= TurnSettings.WIN_SCORE and not self._final_round_triggered:
             self._final_round_triggered = True
             self.message_log.add_message(
-                f"WIN!  REACHED {TurnSettings.WIN_SCORE} TREASURE."
+                f"{player.name} WINS!  REACHED {TurnSettings.WIN_SCORE} TREASURE."
             )
-            self._turn_engine.start_turn()
-            self._player_score = 0
+            for seat in self.players:
+                seat.score = 0
             self._final_round_triggered = False
+
+        self._end_turn_after_delay()
+
+    def _end_turn_after_delay(self) -> None:
+        """Queue an `_advance_to_next_turn()` for after the end-of-turn beat.
+
+        Setting the bot timer to the end-of-turn delay works whether the
+        outgoing turn was a bot's or the human's: the next-turn logic in
+        `_update_world` ticks the timer down and fires the advance.
+        """
+        self._bot_action_timer = BotSettings.END_OF_TURN_DELAY_S
+        # Flag the engine so `_update_world` knows to advance, not to
+        # consult the bot's strategy.
+        self._turn_ending = True
+
+    # -------------------------
+    # BOT DRIVER
+    # -------------------------
+
+    def _tick_bot(self, dt: float) -> None:
+        """Advance the bot pacing timer and act when it expires.
+
+        Runs every frame. Three cases gate the call to the bot strategy:
+          * dice are still rolling → wait,
+          * the turn just ended (bust / bank) → fire `_advance_to_next_turn`,
+          * the timer hasn't expired yet → just decrement.
+        """
+        if self._waiting_for_roll:
+            return
+        self._bot_action_timer -= dt
+        if self._bot_action_timer > 0:
             return
 
-        self._turn_engine.start_turn()
+        # End-of-turn advance has priority over consulting a bot strategy
+        # (this branch also fires after a *human* bank/bust, which is why
+        # the timer is shared rather than bot-only).
+        if self._turn_ending:
+            self._turn_ending = False
+            self._advance_to_next_turn()
+            return
+
+        player = self._current_player
+        if player.is_human:
+            return  # Humans drive input directly; no auto-action.
+
+        decision = player.bot.decide(
+            self._turn_engine.turn_treasures,
+            self._turn_engine.turn_mimics,
+        )
+        if decision is BotDecision.ROLL:
+            self._do_roll()
+        else:
+            self._do_bank()
 
     # -------------------------
     # INPUT HANDLING
     # -------------------------
 
     def _handle_keydown(self, event) -> None:
-        """Route one keyboard press to the appropriate UI/gameplay handler."""
+        """Route one keyboard press to the appropriate UI/gameplay handler.
+
+        Inputs are ignored while a bot is acting so a stray keypress
+        doesn't roll on the bot's behalf.
+        """
         # F11 fullscreen toggle is global.
         if event.key == pygame.K_F11:
             pygame.display.toggle_fullscreen()
             self.full_screen = not self.full_screen
+
+        if not self._current_player.is_human:
+            return
 
         # Roll.
         if event.key == pygame.K_SPACE:
@@ -241,6 +375,9 @@ class GameManager:
         if event.button == InputSettings.JOY_BUTTON_BACK:
             pygame.display.toggle_fullscreen()
             self.full_screen = not self.full_screen
+
+        if not self._current_player.is_human:
+            return
 
         # A button: bank.
         if event.button == InputSettings.JOY_BUTTON_A:
@@ -288,6 +425,9 @@ class GameManager:
         if self._waiting_for_roll and self.dice_roller.all_settled:
             self._on_dice_settled()
 
+        # Tick pacing for either bot decisions or post-turn cleanup.
+        self._tick_bot(dt)
+
     def _draw_panel_frames(self) -> None:
         """Draw the message log frame.
 
@@ -326,8 +466,10 @@ class GameManager:
         self.stats_panel.draw(
             self.screen,
             stats_rect,
-            player_name=StatsPanelSettings.HUMAN_PLAYER_NAME,
-            score=self._player_score,
+            players=[
+                PlayerView(name=p.name, score=p.score) for p in self.players
+            ],
+            active_player_index=self._current_player_index,
             set_aside_faces=self._turn_engine.set_aside_faces,
             set_aside_outcomes=self._turn_engine.set_aside_outcomes,
         )

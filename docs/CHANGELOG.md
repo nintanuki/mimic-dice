@@ -467,3 +467,45 @@ This is one logical change (post-Sonnet review). Sonnet's preceding pass shipped
 **Why:** Architecture doc must reflect every system that shipped.
 
 **Editor:** Frankie, with Claude (claude-opus-4-7) via Cowork.
+
+## 2026-05-16 — Felt persistence within a turn + player rotation with two starter bots
+
+Two related changes shipped together because the bot-rotation work is only demoable once the felt holds onto kept dice within a turn.
+
+**File:** systems/dice_roller.py
+**Lines (at time of edit):** module docstring (1-32), `__init__` (49-72), new `_held_over_dice` (104-115), `roll_with_results` (120-152), new `clear_for_new_turn` (154-156)
+**Before:** `__init__` built `DiceSettings.COUNT` (3) dice up front; `roll_with_results` re-threw all of them every roll, so brains/shotguns were never visually preserved.
+**After:** `__init__` starts with `self.dice = []`. `roll_with_results` only re-throws settled EMPTY dice (matched to the held-over slice of the new lists) and appends new `AnimatedDie` instances for fresh draws. `clear_for_new_turn()` empties the list on bank or bust. Module docstring documents the per-turn growth model.
+**Why:** Faithful to the source-game feel: only footsteps re-roll; brains/shotguns stack on the table. Frankie called this out directly.
+
+**File:** settings.py
+**Lines (at time of edit):** `StatsPanelSettings` (renamed/extended), new `BotSettings` class
+**Before:** `StatsPanelSettings` carried single-player constants only; no `BotSettings` existed.
+**After:** Added `PLAYER_ROW_HEIGHT`, `ACTIVE_MARKER`, `INACTIVE_MARKER` to `StatsPanelSettings`. New `BotSettings` class with `AFTER_ROLL_DELAY_S = 0.85`, `END_OF_TURN_DELAY_S = 1.10`, and `DEFAULT_BOT_NAMES = ("ALICE", "BOB")`.
+**Why:** Centralises every new constant — no magic numbers in the gameplay code.
+
+**File:** systems/bots.py
+**Lines (at time of edit):** (new file)
+**Before:** (file did not exist)
+**After:** New `Bot` dataclass with `decide(turn_treasures, turn_mimics) -> BotDecision`. Two strategies: `alice_strategy` (bank at 2 mimics) and `bob_strategy` (bank at 2 treasures). `make_bot(name)` factory keys into a lookup table with a safe Alice fallback.
+**Why:** Phase 0 needs at least one bot so a single human can test rotation, pacing, and the held-dice panel without playing both sides. Strategies match the *spirit* of two of the easy-tier legacy bots without importing from `legacy/` (which is read-only).
+
+**File:** ui/stats_panel.py
+**Lines (at time of edit):** new `PlayerView` dataclass (43-50), `_draw_roster` (113-152), `draw` signature (218-249)
+**Before:** Single-player only: `draw(..., player_name, score, set_aside_*)`.
+**After:** `draw(..., players: list[PlayerView], active_player_index, set_aside_*)`. New `_draw_roster` renders one row per player with right-aligned score and the active marker beside the active player's name. Held-dice rows still show the active player's set-aside pile only.
+**Why:** Multi-player roster + active-turn highlight is what the panel is for once bots exist.
+
+**File:** main.py
+**Lines (at time of edit):** imports + new `Player` dataclass (1-58), `__init__` (78-117), new `_announce_current_player` / `_advance_to_next_turn` (151-176), reworked `_do_roll` / `_on_dice_settled` / `_do_bank` (181-269), new `_end_turn_after_delay` / `_tick_bot` (272-321), input guards (333-371), `_render_frame` (412-441)
+**Before:** Single human player; rolled all 3 dice each press; bust/bank auto-restarted the same player's turn.
+**After:** Owns a `players: list[Player]` list (human + bots) and a `_current_player_index`. Bust/bank queues a delayed `_advance_to_next_turn()` via `_end_turn_after_delay`. `_tick_bot` runs every frame: it ticks the pacing timer, fires the queued turn advance when it expires, and otherwise consults the active bot's `decide()`. `_do_roll` now refuses re-entry while `_waiting_for_roll` is True. Input handlers ignore presses unless the active player is human. Render pass passes the player list + active index to the panel.
+**Why:** The dice-stay-on-felt change is hard to demo alone; the rotation work is what makes the demo actually playable.
+
+**File:** docs/ARCHITECTURE.md
+**Lines (at time of edit):** §9.3 retitled and extended; §9.4 updated to mention multi-player; new §9.6
+**Before:** §9.3 described every-die-re-throws-each-roll; §9.4 was single-player-only; no bot section.
+**After:** §9.3 explains the per-turn growth of the dice list. §9.4 reflects multi-player roster + active marker. New §9.6 covers `Player`, rotation, `Bot`, strategies, and the shared pacing timer.
+**Why:** Architecture doc must reflect every system that shipped.
+
+**Editor:** Frankie, with Claude (claude-opus-4-7) via Cowork.
