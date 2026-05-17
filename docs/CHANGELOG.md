@@ -317,3 +317,153 @@ the dt comment explains why milliseconds are converted to seconds.
 **Why:** Frankie asked to grab this pattern before closing the session that had access to Dungeon Digger; the new session will work against the mimic-dice repo only.
 
 **Editor:** Frankie, with Claude (claude-opus-4-7) via Cowork.
+
+## 2026-05-16 23:29 +00:00 — Outcome type and face_to_outcome map (Phase 0, first rules-engine piece)
+
+**File:** settings.py
+**Lines (at time of edit):** 221-238 (new `OutcomeSettings` class inserted above `DiceSettings`)
+**Before:** No outcome-related constants; faces 1-6 had no meaning beyond their sprite index.
+**After:** New `OutcomeSettings` class with `MIMIC_FACE_MAX = 2` and `EMPTY_FACE_MAX = 4`, plus a class docstring explaining that this is the Phase 0 placeholder (equal-odds 1-2 → MIMIC, 3-4 → EMPTY, 5-6 → TREASURE) and that Phase 1 will retire the class along with the equal-odds bag.
+**Why:** The face → outcome thresholds belong in `settings.py` per the no-magic-numbers rule. Keeping them in their own class (rather than folding them into `DiceSettings`) makes it obvious that this whole block is Phase 0 scaffolding that disappears when the color-distribution bag arrives.
+
+**File:** systems/outcomes.py
+**Lines (at time of edit):** (new file)
+**Before:** (file did not exist)
+**After:** New module with module docstring describing the seam between the dice subsystem and the rules engine. Defines `Outcome` (an `Enum` with `MIMIC` / `EMPTY` / `TREASURE`) and `face_to_outcome(face)`, which reads `OutcomeSettings.MIMIC_FACE_MAX` and `EMPTY_FACE_MAX` to map a 1-based face into the right `Outcome`. Sections are split with the project's `# ---- SECTION NAME ----` banner style: `OUTCOME TYPE` and `FACE -> OUTCOME MAPPING`. Verified the mapping by hand for all six faces (1,2 → MIMIC; 3,4 → EMPTY; 5,6 → TREASURE) before committing.
+**Why:** First piece of the Phase 0 rules engine. The bag, hold-over, bust/bank, and win condition will all read outcomes through this type instead of raw face indexes, which means Phase 1 only needs to swap the implementation of `face_to_outcome` for a per-color distribution lookup — nothing downstream of this seam should need to change.
+
+**File:** docs/TODO.md
+**Lines (at time of edit):** 12 (Phase 0 → Rules engine → first bullet)
+**Before:** `- [ ] Add Outcome constants ...`
+**After:** `- [x] Add Outcome constants ...`
+**Why:** The roadmap rule is `[ ]` → `[x]` once an item ships; do not delete.
+
+**File:** docs/ARCHITECTURE.md
+**Lines (at time of edit):** New Section 3.5 inserted after 3.4; Section 9's "Rules engine" bullet expanded
+**Before:** Section 9 just said "Rules engine (turn state, cup, draw-3, bust, bank, win condition)." with no mention that any of it existed yet; no Section 3.5.
+**After:** New Section 3.5 "The Outcome layer" explains the seam (Outcome as the type the rules engine speaks, face_to_outcome as the Phase 0 placeholder that gets swapped for a per-color lookup in Phase 1, without anything above the seam having to change). Section 9's rules-engine bullet now reads "bag" not "cup" (matches the rest of the docs) and notes that the Outcome type and `face_to_outcome` map already shipped.
+**Why:** Architecture rule: any new system gets its own section; the unbuilt-systems list shrinks as pieces land.
+
+**Editor:** Frankie, with Claude (claude-opus-4-7) via Cowork.
+
+## 2026-05-16 23:42 +00:00 — Copilot instructions: OneDrive sync caveat for Cowork sessions
+
+**File:** .github/copilot-instructions.md
+**Lines (at time of edit):** New section "Verifying edits in a Cowork session (OneDrive sync caveat)" inserted directly above the Mental testing checklist
+**Before:** No mention of the Windows / Linux-mount sync lag; contributors verifying just-edited code through `bash` would silently execute against the stale file and waste time chasing phantom errors.
+**After:** New section explains that the Read / Write / Edit tools talk to Windows directly and are immediate, but `bash` (and any `python3` run through it) sees a OneDrive-synced Linux mount that can lag for seconds to minutes. Workarounds listed: (a) do not import just-edited Python through `bash`, (b) use a self-contained `python3 -c` equivalence test for behavior checks, (c) use the Read tool — not `cat` / `sed` / `wc` — for file-content checks, (d) run real pygame/runtime tests on the Windows side outside Cowork.
+**Why:** This bit Frankie's Outcome / `face_to_outcome` verification step earlier in the same session — the bash import failed with a `NameError` that was actually just the truncated stale file. Capturing the workaround in copilot-instructions means future sessions (human or AI) don't repeat the same dead-end.
+
+**Editor:** Frankie, with Claude (claude-opus-4-7) via Cowork.
+
+## 2026-05-16 — Phase 0 rules engine: bag, turn engine, outcome-colored dice
+
+**File:** settings.py
+**Lines (at time of edit):** AssetPaths class (new constants), new BagSettings and TurnSettings classes inserted above DiceSettings
+**Before:** AssetPaths had no outcome sprite row constants; no BagSettings or TurnSettings.
+**After:** Added `DIE_MIMIC_ROW = 3`, `DIE_EMPTY_ROW = 2`, `DIE_TREASURE_ROW = 9` to AssetPaths. New `BagSettings` class with `TOTAL_DICE = 13`. New `TurnSettings` class with `DICE_PER_ROLL = 3`, `BUST_THRESHOLD = 3`, `WIN_SCORE = 13`.
+**Why:** Centralizes all new rules-engine knobs per the no-magic-numbers rule; outcome row constants belong with the sprite-sheet layout data in AssetPaths.
+
+**File:** systems/bag.py
+**Lines (at time of edit):** (new file)
+**Before:** (file did not exist)
+**After:** New `Bag` class: integer counter (all 13 dice are identical in Phase 0), `reset()`, `draw(n)` resolves each die through `face_to_outcome`, `recycle(set_aside)` returns TREASURE-outcome dice to the pool when the bag empties mid-turn.
+**Why:** Second rules-engine piece (first was `systems/outcomes.py`). Bag is a pure data structure, never drawn.
+
+**File:** systems/turn_engine.py
+**Lines (at time of edit):** (new file)
+**Before:** (file did not exist)
+**After:** New `TurnStatus` enum (ROLLING / BUST / BANKED), `RollResult` dataclass (outcomes list + running totals), and `TurnEngine` class. `start_turn()` resets counters and refills the bag. `roll()` re-rolls held-over EMPTY dice, draws fresh dice from the bag, classifies outcomes, fires mid-turn recycle if bag is short, checks bust at `BUST_THRESHOLD` mimics. `bank()` commits `turn_treasures` to the caller's score. Win condition detected in `GameManager` after each bank.
+**Why:** Core rules engine for Phase 0. Logic tested with 1 000 simulated turns (38% bust rate, 62% bank rate, 0 unresolved turns).
+
+**File:** systems/animated_die.py
+**Lines (at time of edit):** 1–24 (module docstring), 39–63 (constructor), 159–172 (_settle), 196–201 (draw)
+**Before:** Constructor took `face_sprites: list[Surface]` (single row); `_settle()` used `random.randrange(len(self.face_sprites))`; `draw()` referenced `self.face_sprites[self.face_index]`.
+**After:** Constructor takes `outcome_sprites: dict[Outcome, list[Surface]]` and derives `self.size` from the first entry. Adds `pending_outcome: Optional[Outcome]` field and `_settled_sprites` cache. `_settle()` looks up `pending_outcome` in `outcome_sprites` and picks a random frame from the matching row; falls back to the first available row if outcome is unset. `draw()` uses `self._settled_sprites`.
+**Why:** Architecture doc stated the engine should pre-decide outcomes and inject them at settle time rather than `random.randrange`; this pass wires that up while keeping the physics and animation logic unchanged.
+
+**File:** systems/dice_roller.py
+**Lines (at time of edit):** 1–94 (rewritten)
+**Before:** Loaded one face row (`DIE_FACE_ROW = 0`, white); constructed `AnimatedDie(face_sprites, tumble_sprites)`; exposed only `roll_all()`.
+**After:** Loads three outcome face rows (MIMIC=row 3, EMPTY=row 2, TREASURE=row 9) into `outcome_sprites: dict[Outcome, list[Surface]]`; constructs each `AnimatedDie(outcome_sprites, tumble_sprites)`. Adds `all_settled` property (True when no die is still rolling). Adds `roll_with_outcomes(outcomes)` which assigns `die.pending_outcome` then calls `die.roll()` for each die/outcome pair. Removed `roll_all()`.
+**Why:** DiceRoller is the only dice-system entry point; loading outcome rows here and sharing them across all dice keeps memory flat and isolates sprite-sheet knowledge from GameManager and TurnEngine.
+
+**File:** main.py
+**Lines (at time of edit):** 1–221 (rewritten)
+**Before:** Imported only DiceRoller, MessageLog, CRT; SPACE called `dice_roller.roll_all()` directly; message log not drawn; no rules-engine integration.
+**After:** Imports `Bag`, `TurnEngine`, `TurnStatus`, `TurnSettings`. Constructs `_bag` and `_turn_engine` in `__init__`. SPACE calls `_do_roll()`: asks engine for outcomes, animates via `roll_with_outcomes`, sets `_waiting_for_roll`. A/Enter/JoyA calls `_do_bank()`. `_update_world` detects `all_settled` edge and calls `_on_dice_settled()`, which logs the roll summary + running totals + BUST message. Win detection resets the game (full final-round logic is a Phase 0 Game Flow task). Message log now drawn each frame.
+**Why:** Phase 0 milestone: bag, turn engine, and animated outcome-colored dice are all wired into a playable single-player game loop.
+
+**File:** docs/TODO.md
+**Lines (at time of edit):** Phase 0 → Rules engine and Visual placeholder mapping sections
+**Before:** `[ ]` for all four rules-engine items and the visual placeholder mapping item.
+**After:** `[x]` for: bag + draw-3 + hold-over; mid-turn recycle; bust/bank tracking; win condition; outcome-colored sprite rows.
+**Why:** Roadmap maintenance rule.
+
+**File:** docs/ARCHITECTURE.md
+**Lines (at time of edit):** Section 9 (new), old Section 9 renamed to 10
+**Before:** Section 9 listed rules engine, AI adapter, UI screens, audio as unbuilt.
+**After:** New Section 9 "The rules engine" documents Bag (9.1), TurnEngine (9.2), outcome-driven sprite rows (9.3), and the win-condition stub (9.4). Old unbuilt list is now Section 10 with the rules engine removed.
+**Why:** Architecture doc must reflect every system that shipped.
+
+**Editor:** Frankie, with Claude (claude-sonnet-4-6) via Cowork.
+
+## 2026-05-16 — Phase 0 rules-engine pass: row remap, face-to-sprite plumbing, stats panel, log cleanup
+
+This is one logical change (post-Sonnet review). Sonnet's preceding pass shipped colors that didn't match what the sprite sheet actually contained, a face-vs-outcome disconnect that confused the player, duplicated welcome lines, and a placeholder stats panel.
+
+**File:** settings.py
+**Lines (at time of edit):** ColorSettings (~22-38), AssetPaths (~133-140), MessageLogSettings (~182-185), new StatsPanelSettings (~202-219)
+**Before:** `DIE_MIMIC_ROW = 3` (hot pink in the sheet), `DIE_EMPTY_ROW = 2` (red), `DIE_TREASURE_ROW = 9` (lime); `LOG_HIGHLIGHT_TREASURE = GREEN`; `WELCOME_MESSAGE` was a 2-line list seeded into the log; no StatsPanelSettings.
+**After:** `DIE_MIMIC_ROW = 2` (red), `DIE_EMPTY_ROW = 0` (white — sheet has no grey row), `DIE_TREASURE_ROW = 10` (yellow); new `TREASURE_YELLOW` palette entry; `LOG_HIGHLIGHT_TREASURE = TREASURE_YELLOW`; new `STATS_TEXT_COLOR`; `WELCOME_LINE` is a single string owned by GameManager; new `StatsPanelSettings` with text padding, line height, section gap, held-dice spacing, and `HUMAN_PLAYER_NAME`.
+**Why:** Sonnet's row indices were verified by pixel-sampling `six_sided_die.png` and were all wrong — the sheet has no grey row, and the row labeled "green" was actually lime. The user asked for yellow treasure; the closest in-sheet match is row 10. Centralising the panel + welcome constants keeps `settings.py` the only knob panel.
+
+**File:** systems/bag.py
+**Lines (at time of edit):** module docstring (1-24), `draw` (69-86)
+**Before:** `Bag.draw(n) -> list[Outcome]` — called `face_to_outcome` internally so the rolled face was thrown away.
+**After:** `Bag.draw(n) -> list[int]` — returns raw 1–6 face values; `TurnEngine` runs `face_to_outcome`. Docstrings updated to explain why faces leave the bag instead of outcomes.
+**Why:** The face value has to survive the bag draw if the rendered pip count is going to match the outcome. Without this, a "1"-pipped die could land in the treasure row and the player would (correctly) read that as inconsistent.
+
+**File:** systems/turn_engine.py
+**Lines (at time of edit):** RollResult dataclass (56-76), `__init__` (95-105), `start_turn` (107-115), `roll` (130-195)
+**Before:** `RollResult` had `outcomes` only; `_set_aside: list[Outcome]` was private; `roll()` consumed outcomes directly from `Bag.draw`.
+**After:** `RollResult` now has parallel `faces: list[int]` and `outcomes: list[Outcome]`. `set_aside_faces` / `set_aside_outcomes` are public on `TurnEngine` (the stats panel reads them). `roll()` pulls faces from `Bag.draw`, runs `face_to_outcome` over them, and bookkeeps both lists.
+**Why:** Stats-panel rendering needs the same face values that drove each outcome, and the rules layer is the natural seam to do `face → outcome` resolution.
+
+**File:** systems/animated_die.py
+**Lines (at time of edit):** module docstring (17-26), `__init__` (54-65), `_settle` (159-180)
+**Before:** `_settle()` picked a random column from `outcome_sprites[pending_outcome]`, so a TREASURE die could show a "1"-pip face.
+**After:** New `pending_face: Optional[int]` set alongside `pending_outcome`. `_settle()` uses `pending_face - 1` as the column index, with a random fallback if `pending_face` is unset.
+**Why:** Locks the displayed pip count to the engine's rolled face, which is what removes the user-facing "5 is a mimic / 1 is treasure" confusion.
+
+**File:** systems/dice_roller.py
+**Lines (at time of edit):** module docstring (10-15), `roll_with_outcomes` → `roll_with_results` (99-122)
+**Before:** `roll_with_outcomes(outcomes)` — assigned `pending_outcome` only.
+**After:** Renamed `roll_with_results(faces, outcomes)`; assigns both `pending_outcome` and `pending_face` per die.
+**Why:** Matches the new `RollResult` shape and forces the call site to pass both values together (you can't accidentally pair the wrong arrays).
+
+**File:** ui/message_log.py
+**Lines (at time of edit):** `__init__` (29-38)
+**Before:** `self.messages = list(MessageLogSettings.WELCOME_MESSAGE)` — the log shipped pre-seeded.
+**After:** `self.messages = []` and GameManager owns the single opening line.
+**Why:** Sonnet's pass seeded the welcome lines in *both* `MessageLog.__init__` *and* `GameManager.__init__`, so the log opened with each line duplicated. One source now.
+
+**File:** ui/stats_panel.py
+**Lines (at time of edit):** (new file)
+**Before:** (file did not exist)
+**After:** New `StatsPanel` class. Draws its own rounded-rect frame, a player-name + score header, and two labeled rows of held-die thumbs (TREASURE first, MIMICS below). Reads `outcome_sprites` from the shared roller so the thumb art matches the tray. Thumb rows wrap horizontally if the panel is too narrow.
+**Why:** Player asked for held dice + score visible alongside the player name; replaces the empty placeholder frame the previous pass drew.
+
+**File:** main.py
+**Lines (at time of edit):** imports (~6-21), `__init__` (~62-72), `_do_roll` (~119-141), `_on_dice_settled` (~143-175), `_do_bank` (~196-212), `_draw_panel_frames` (~291-313), `_render_frame` (~315-340)
+**Before:** Built only the message log; seeded welcome lines redundantly; sent `outcomes` only to `DiceRoller.roll_with_outcomes`; logged a "THIS TURN: …" line every roll (duplicated by the new panel); win prompt read "YOU REACHED 13!  WINS!".
+**After:** Constructs `StatsPanel`; greets via `WELCOME_LINE` only; sends `faces + outcomes` to `DiceRoller.roll_with_results`; drops the "THIS TURN" log noise (panel covers it); renders the panel via `stats_panel.draw(...)`; win prompt now reads "WIN!  REACHED 13 TREASURE.".
+**Why:** Wires the new face plumbing, removes the log/panel duplication, and tightens the copy.
+
+**File:** docs/ARCHITECTURE.md
+**Lines (at time of edit):** Section 9 (9.1 bag, 9.2 turn engine, 9.3 sprite rows, new 9.4 stats panel, renumbered 9.5 win-condition stub)
+**Before:** Bag described as returning outcomes; sprite-row table was wrong; no stats panel section.
+**After:** Bag now described as returning face values; sprite-row table reflects red/white/yellow remap; new 9.4 documents the stats panel; old 9.4 (win condition stub) renumbered to 9.5.
+**Why:** Architecture doc must reflect every system that shipped.
+
+**Editor:** Frankie, with Claude (claude-opus-4-7) via Cowork.

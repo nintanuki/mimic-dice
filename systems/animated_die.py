@@ -3,7 +3,8 @@
 An `AnimatedDie` is owned by a `DiceRoller` and constrained by a `DiceTray`.
 It has two visual states:
   * Rolling - cycles through tumble frames; speed-driven frame rate.
-  * Settled - shows one of the six face frames picked at settle time.
+  * Settled - shows a face frame chosen from the sprite row that matches the
+    die's pre-decided `pending_outcome`.
 
 Physics notes:
   * Velocity uses pixels/second, integrated each frame by `dt`.
@@ -12,14 +13,27 @@ Physics notes:
   * Wall reflection in `_bounce_against_walls` uses `abs(vel)` rather than
     plain negation. This guarantees a die spawned just outside the tray is
     pulled back in even if its velocity already pointed away from the wall.
+
+Outcome-driven sprite rows
+--------------------------
+Before calling `roll()`, the rules engine sets `die.pending_outcome` to the
+pre-decided `Outcome` for that die *and* `die.pending_face` to the 1–6 face
+value that produced that outcome under the Phase 0 threshold map. When the
+die settles, `_settle()` picks the sprite from the outcome's row at the
+pending face's column, so the pips you read on the die always match the
+face value the engine rolled (face 1 → MIMIC, face 6 → TREASURE, etc.).
+This keeps the animation system decoupled from the rules engine: the
+engine decides what happened; the die only knows how to show it.
 """
 
 import math
 import random
+from typing import Optional
 
 import pygame
 
 from settings import DiceSettings
+from systems.outcomes import Outcome
 
 
 class AnimatedDie:
@@ -27,18 +41,32 @@ class AnimatedDie:
 
     def __init__(
         self,
-        face_sprites: list[pygame.Surface],
+        outcome_sprites: dict[Outcome, list[pygame.Surface]],
         tumble_sprites: list[pygame.Surface],
     ):
         """Store the sprite frames; the die stays idle until `roll()` runs.
 
         Args:
-            face_sprites: 6 settled-face frames (indexed 0..5 = faces 1..6).
+            outcome_sprites: Mapping from each Outcome to its list of settled-
+                face frames.  At settle time, the die picks the sprite at
+                `pending_face - 1` from the list keyed by `pending_outcome`,
+                so the displayed pip count matches the engine's rolled face.
             tumble_sprites: Mid-tumble frames cycled while the die moves.
         """
-        self.face_sprites = face_sprites
+        self.outcome_sprites = outcome_sprites
         self.tumble_sprites = tumble_sprites
-        self.size = face_sprites[0].get_width()
+
+        # Use any sprite list to derive the die's rendered size.
+        first_sprites = next(iter(outcome_sprites.values()))
+        self.size = first_sprites[0].get_width()
+
+        # pending_outcome + pending_face are set by DiceRoller (from the rules
+        # engine) before each roll. _settle() reads them to pick the right
+        # sprite row (outcome) and column (face value).
+        self.pending_outcome: Optional[Outcome] = None
+        self.pending_face: Optional[int] = None
+        # The sprite list used for the current settled state.
+        self._settled_sprites: list[pygame.Surface] = first_sprites
 
         self.position = pygame.Vector2(0, 0)
         self.velocity = pygame.Vector2(0, 0)
@@ -135,10 +163,25 @@ class AnimatedDie:
             )
 
     def _settle(self) -> None:
-        """Stop the die and pick a final face."""
+        """Stop the die and pick a final face frame from the outcome's sprite row.
+
+        If `pending_outcome` is set and present in `outcome_sprites`, that
+        outcome's sprite list is used; otherwise the first available list
+        acts as the fallback so the die always renders something sensible.
+        Within the chosen row, `pending_face` (1–6) picks the column so the
+        displayed pips always match the engine's rolled face. If
+        `pending_face` is unset we fall back to a random column.
+        """
         self.is_rolling = False
         self.velocity.update(0, 0)
-        self.face_index = random.randrange(len(self.face_sprites))
+        if self.pending_outcome is not None and self.pending_outcome in self.outcome_sprites:
+            self._settled_sprites = self.outcome_sprites[self.pending_outcome]
+        else:
+            self._settled_sprites = next(iter(self.outcome_sprites.values()))
+        if self.pending_face is not None and 1 <= self.pending_face <= len(self._settled_sprites):
+            self.face_index = self.pending_face - 1
+        else:
+            self.face_index = random.randrange(len(self._settled_sprites))
 
     # -------------------------
     # UPDATE / DRAW
@@ -167,7 +210,7 @@ class AnimatedDie:
         sprite = (
             self.tumble_sprites[self.tumble_index]
             if self.is_rolling
-            else self.face_sprites[self.face_index]
+            else self._settled_sprites[self.face_index]
         )
         render_position = (
             int(self.position.x - self.size / 2),

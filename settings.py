@@ -20,6 +20,7 @@ class ColorSettings:
     GREEN = (0, 255, 0)
     BLUE = (0, 0, 255)
     YELLOW = (255, 220, 60)        # Warm yellow used for the actively-typing log line.
+    TREASURE_YELLOW = (255, 232, 27)  # Matches the yellow die body so log text and dice agree.
     LIGHT_GREY = (220, 220, 220)
     VELVET_GREEN = (24, 78, 56)    # Deep felt green, classic gaming-table look.
     MAROON = (96, 28, 36)          # Deep red felt, alternative tray color.
@@ -33,9 +34,10 @@ class ColorSettings:
     PANEL_FILL_COLOR = BLACK         # Inside of UI panel frames; lets text stand out.
     LOG_TEXT_DEFAULT = WHITE         # Color of settled (historical) log lines.
     LOG_TEXT_ACTIVE = YELLOW         # Color of the in-progress (typing) log line.
-    LOG_HIGHLIGHT_MIMIC = RED        # Inline color of MIMIC/MIMICS/BUST tokens.
-    LOG_HIGHLIGHT_TREASURE = GREEN   # Inline color of TREASURE/BANK/WIN tokens.
-    LOG_HIGHLIGHT_EMPTY = LIGHT_GREY # Inline color of EMPTY-chest tokens.
+    LOG_HIGHLIGHT_MIMIC = RED                # Inline color of MIMIC/MIMICS/BUST tokens.
+    LOG_HIGHLIGHT_TREASURE = TREASURE_YELLOW # Inline color of TREASURE/BANK/WIN tokens.
+    LOG_HIGHLIGHT_EMPTY = LIGHT_GREY         # Inline color of EMPTY-chest tokens.
+    STATS_TEXT_COLOR = WHITE                 # Default text color in the stats panel.
 
 
 class ScreenSettings:
@@ -126,6 +128,17 @@ class AssetPaths:
     DIE_FACE_COUNT = 6             # Number of distinct settled faces.
     DIE_TUMBLE_FRAME_COUNT = 6     # Number of mid-tumble frames in that row.
 
+    # ---- Phase 0 outcome sprite rows ----
+    # Each outcome maps to a colored die row so players can read results at a
+    # glance. All dice still have equal odds in Phase 0; the color is a
+    # readability cue only. Phase 3 will replace the number art with real icons.
+    # Row colors were verified by pixel-sampling six_sided_die.png: row 2 is
+    # the saturated red, row 10 is the saturated yellow, and the sheet has no
+    # grey row so row 0 (white) is the most-neutral stand-in for EMPTY.
+    DIE_MIMIC_ROW = 2              # Red row → MIMIC outcome.
+    DIE_EMPTY_ROW = 0              # White row → EMPTY (held-over) outcome; sheet has no grey.
+    DIE_TREASURE_ROW = 10          # Yellow row → TREASURE outcome.
+
 
 class LayoutSettings:
     """Window-frame layout: stats panel right, message log bottom, tray top-left.
@@ -166,11 +179,10 @@ class MessageLogSettings:
     # values type more slowly; values >= 1.0 are effectively instant.
     TYPING_SPEED = 0.25
 
-    # Lines shown before any game event has occurred.
-    WELCOME_MESSAGE = [
-        "MIMIC DICE",
-        "PRESS SPACE TO ROLL.",
-    ]
+    # The single greeting line shown before any game event has occurred.
+    # GameManager owns this so the log starts empty and any opening text
+    # comes from one place only — avoids the dup we used to ship.
+    WELCOME_LINE = "PRESS SPACE TO ROLL.  A OR ENTER TO BANK."
 
     # Per-term colors applied inline in any log line. Longer terms take
     # priority at match time so substrings of longer terms can't win.
@@ -185,6 +197,26 @@ class MessageLogSettings:
         "WIN":      ColorSettings.LOG_HIGHLIGHT_TREASURE,
         "WINS":     ColorSettings.LOG_HIGHLIGHT_TREASURE,
     }
+
+
+class StatsPanelSettings:
+    """Right-side stats panel: player name, banked score, this-turn dice.
+
+    The panel renders inside the rect returned by `ui.layout.stats_panel_rect`.
+    Constants here cover only the panel's *contents*; the frame itself uses
+    `LayoutSettings.PANEL_BORDER_*` for the outline.
+    """
+
+    TEXT_PADDING = 16              # Inset between the panel frame and its text (px).
+    LINE_HEIGHT = 18               # Vertical spacing between text rows (px).
+    SECTION_GAP = 18               # Gap above each new section heading (px).
+    HELD_DICE_SPACING = 4          # Horizontal gap between two adjacent held-die thumbs (px).
+    HELD_DICE_ROW_GAP = 6          # Vertical gap between thumb rows when they wrap (px).
+    HELD_DICE_LABEL_GAP = 6        # Gap between a section label and its thumb row (px).
+
+    # The Phase 0 single-player build only ever shows one human player.
+    # Phase 2 replaces this with the lobby-selected name(s).
+    HUMAN_PLAYER_NAME = "PLAYER 1"
 
 
 class GameOverSettings:
@@ -216,6 +248,45 @@ class GameOverSettings:
 
     # Single line of copy shown under the title. UI text is ALL CAPS.
     CONTINUE_PROMPT = "PRESS A OR ENTER TO PLAY AGAIN"
+
+
+class OutcomeSettings:
+    """Phase 0 placeholder mapping from a 1-6 die face to a game outcome.
+
+    Mimic Dice has three outcomes per die: MIMIC, EMPTY (chest), and
+    TREASURE. The shipping game will read those outcomes from per-color
+    face distributions, but Phase 0 uses a single equal-odds 1-6 die so
+    the engine, UI, AI bots, and game loop can be exercised before the
+    color-distribution work begins. The two threshold values here are
+    what make the three outcomes equal-odds: 1-2 -> MIMIC,
+    3-4 -> EMPTY, 5-6 -> TREASURE.
+
+    Phase 1 will retire this class along with the equal-odds bag; the
+    consumers of `face_to_outcome` will be replaced by a per-color
+    distribution lookup at that time.
+    """
+
+    MIMIC_FACE_MAX = 2             # Highest face index treated as MIMIC.
+    EMPTY_FACE_MAX = 4             # Highest face index treated as EMPTY; faces above this are TREASURE.
+
+
+class BagSettings:
+    """The pool of dice available each turn.
+
+    Phase 0: 13 mechanically-identical dice (equal 1/3 odds per outcome).
+    Phase 1 will replace this with the real Zombie Dice distribution
+    (6 green / 4 yellow / 3 red) without touching the bag or turn engine.
+    """
+
+    TOTAL_DICE = 13                # Total dice in the bag at turn start.
+
+
+class TurnSettings:
+    """Rules parameters for a single player's turn."""
+
+    DICE_PER_ROLL = 3              # Dice in hand per roll (held-overs + fresh draws).
+    BUST_THRESHOLD = 3             # Mimics on one turn that trigger a bust.
+    WIN_SCORE = 13                 # First player to reach this score triggers the final round.
 
 
 class DiceSettings:

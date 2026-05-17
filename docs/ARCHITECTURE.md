@@ -117,6 +117,15 @@ Right now the sheet contains a generic 1–6 numbered six-sided die. Mimic Dice 
 - **Phase 1** replaces Phase 0's equal-odds bag with the real Zombie Dice distribution (6 green / 4 yellow / 3 red dice with per-color face distributions) and reintroduces Lizzie, who was held out of Phase 0 because her strategy depends on red-dice counts.
 - **Phase 3** replaces the placeholder number art entirely with treasure/empty-chest/mimic icons.
 
+### 3.5 The Outcome layer
+
+`systems/outcomes.py` defines the seam between the dice subsystem and everything downstream of it. It exposes two things:
+
+- `Outcome` — an `Enum` with three members, `MIMIC`, `EMPTY`, and `TREASURE`. Every rules-engine decision (bust, bank, hold-over, score) reads outcomes through this type, not raw face indexes.
+- `face_to_outcome(face)` — the Phase 0 placeholder mapping from a 1-based face (1–6) to an `Outcome`, using thresholds from `settings.OutcomeSettings`.
+
+This split is deliberate. The dice subsystem still settles on an integer face (and will keep doing so), but the rules engine, the message log, the AI bots, and the future Lizzie strategy all talk in outcomes. When Phase 1 lands, the seam stays: `Outcome` is unchanged, and `face_to_outcome` is replaced by a per-color distribution lookup that returns the same type. Nothing above this seam should need to change for that swap.
+
 ---
 
 ## 4. The CRT post-process
@@ -189,11 +198,78 @@ This is what `main.py`, `dice_roller.py`, and `dice_tray.py` already use. Keep i
 
 ---
 
-## 9. What's *not* here yet
+---
+
+## 9. The rules engine
+
+The rules engine is split across two modules that each own one job.
+
+```
+systems/bag.py        — the 13-die draw pool
+systems/turn_engine.py — per-turn state: hold-overs, bust, bank, win
+```
+
+`GameManager` owns one `Bag` and one `TurnEngine`. It calls `start_turn()` at the top of every turn and `roll()` / `bank()` in response to player input.
+
+### 9.1 `Bag` — the draw pool
+
+`Bag` is a pure integer counter (not a list of individual dice) because Phase 0 dice are mechanically identical. Its interface:
+
+- `reset()` — refills to `BagSettings.TOTAL_DICE` (13). Called once per turn by `TurnEngine.start_turn()`.
+- `draw(n)` — removes up to *n* dice from the pool and returns a list of integer **face values** (1–6). The caller (`TurnEngine`) runs `face_to_outcome` to classify each face. Returning faces — not outcomes — is what lets the renderer show the same pip count the engine rolled, so a die showing "1" is always a MIMIC and a die showing "6" is always a TREASURE.
+- `recycle(set_aside)` — puts TREASURE-outcome dice from the set-aside pile back into the pool. Called automatically by `TurnEngine.roll()` when the bag cannot supply the needed dice mid-turn.
+
+The bag is never drawn. It is a data structure — players reach into it conceptually each time they choose to roll.
+
+### 9.2 `TurnEngine` — per-turn state machine
+
+`TurnEngine` manages one player's turn from first draw to bust or bank. Key state:
+
+- `turn_mimics` / `turn_treasures` — running totals for this turn.
+- `held_over` — count of EMPTY dice in hand that carry into the next roll (not returned to the bag).
+- `set_aside_faces` / `set_aside_outcomes` — parallel lists of every MIMIC + TREASURE die set aside so far this turn (faces first, outcomes second). `Bag.recycle()` reads outcomes for the mid-turn refill, and the stats panel reads both for the held-dice thumbs.
+- `status` — a `TurnStatus` enum: `ROLLING`, `BUST`, or `BANKED`.
+
+`roll()` flow:
+
+1. Compute `dice_needed = DICE_PER_ROLL − held_over`.
+2. If `bag.count < dice_needed`, call `bag.recycle(self.set_aside_outcomes)` first.
+3. Re-roll held-over EMPTY dice (fresh face values, classified via `face_to_outcome`).
+4. Draw `dice_needed` fresh face values from the bag.
+5. Classify all faces into outcomes: MIMIC → increment counter + append face/outcome to set-aside; TREASURE → same; EMPTY → increment `held_over`.
+6. Check bust: if `turn_mimics >= BUST_THRESHOLD`, set `status = BUST`.
+7. Return a `RollResult` dataclass with parallel `faces` + `outcomes` lists and all running totals.
+
+`bank()` commits `turn_treasures` to the caller's score and sets `status = BANKED`.
+
+### 9.3 Outcome- and face-driven sprite rows
+
+`TurnEngine.roll()` returns a `RollResult` whose `faces` and `outcomes` are parallel lists ordered so that held-over dice come first and freshly-drawn dice follow. `GameManager._do_roll()` calls `dice_roller.roll_with_results(faces, outcomes)`, which assigns each die's `pending_outcome` *and* `pending_face` before throwing it. When the die settles, `AnimatedDie._settle()` picks the sprite from `outcome_sprites[pending_outcome][pending_face - 1]`, so the column choice mirrors the engine's rolled face value — a die showing "1" is always MIMIC, "6" always TREASURE.
+
+Row colors were verified by pixel-sampling `six_sided_die.png`. The 12-color sheet has no grey row, so EMPTY uses the white row as the most neutral stand-in:
+
+| Outcome  | Sprite row | Color  |
+|----------|-----------|--------|
+| MIMIC    | 2         | Red    |
+| EMPTY    | 0         | White  |
+| TREASURE | 10        | Yellow |
+
+This is Phase 0 placeholder behavior. Phase 3 replaces the numbered faces with treasure/chest/mimic icons; nothing outside `AssetPaths` needs to change for that swap.
+
+### 9.4 Stats panel
+
+`ui/stats_panel.py::StatsPanel` paints the right-side column every frame from data passed in by `GameManager`: player name, banked score, and the set-aside faces + outcomes for this turn. Treasure thumbs and mimic thumbs render on separate labeled rows; both rows reset on `TurnEngine.start_turn()` (bank or bust), while the banked score persists across turns. The panel shares the tray's `outcome_sprites` so thumb art always matches what landed in the tray.
+
+### 9.5 Win condition (Phase 0 stub)
+
+The first player to bank enough treasure to reach `TurnSettings.WIN_SCORE` (13) triggers the final round. Phase 0 logs a WIN message and resets immediately; the full final-round rotation (every other player gets one more turn) is wired up as part of the Phase 0 Game Flow tasks.
+
+---
+
+## 10. What's *not* here yet
 
 The following systems will get their own sections in this document as they're built. If you're implementing one of these, please add the section as part of your pass:
 
-- Rules engine (turn state, cup, draw-3, bust, bank, win condition).
 - AI player adapter (wraps the bots in `legacy/zombie-dice-bots/` to use our dice + rules).
-- UI screens (title, lobby, in-game HUD, win screen).
+- UI screens (title, lobby, stats panel content, win screen).
 - Audio system.

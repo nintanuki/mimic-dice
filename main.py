@@ -3,9 +3,13 @@ from __future__ import annotations
 import pygame
 import sys
 
+from systems.bag import Bag
 from systems.dice_roller import DiceRoller
+from systems.outcomes import Outcome
+from systems.turn_engine import TurnEngine, TurnStatus
 from ui import layout
 from ui.message_log import MessageLog
+from ui.stats_panel import StatsPanel
 from crt import CRT
 from settings import (
     ScreenSettings,
@@ -13,7 +17,11 @@ from settings import (
     ColorSettings,
     DebugSettings,
     LayoutSettings,
+    MessageLogSettings,
+    StatsPanelSettings,
+    TurnSettings,
 )
+
 
 class GameManager:
     """Coordinate game state, flow, rendering phases, and input orchestration."""
@@ -35,20 +43,38 @@ class GameManager:
         self.clock = pygame.time.Clock()
 
         self.setup_controllers()
-        self.game_active = False
 
         # -------- Dice --------
         self.dice_roller = DiceRoller(self.screen.get_size())
 
+        # -------- Rules engine --------
+        self._bag = Bag()
+        self._turn_engine = TurnEngine(self._bag)
+        self._player_score: int = 0
+        # Simple flag: has a bank push crossed WIN_SCORE yet?
+        self._final_round_triggered: bool = False
+
+        # -------- Turn state --------
+        # waiting_for_roll: player pressed SPACE; dice are still in flight.
+        # We wait until all dice settle before accepting another SPACE or a
+        # BANK so the log has something concrete to report.
+        self._waiting_for_roll: bool = False
+        # Populated by _do_roll; read by _on_dice_settled once all dice rest.
+        self._last_roll_result = None
+
         # -------- UI panels --------
-        # The frames are drawn from layout-computed rects each frame; the
-        # message log is constructed here so the typewriter machinery is
-        # available once gameplay events start firing in a later pass.
         self.message_log = MessageLog()
+        self.stats_panel = StatsPanel(self.dice_roller.outcome_sprites)
 
         # -------- Post-processing --------
         self.full_screen = False
         self.crt = CRT(self.screen)
+
+        # Start the first turn and greet the player. The log owns its own
+        # opening line; we don't echo it here so the welcome only appears
+        # once.
+        self._turn_engine.start_turn()
+        self.message_log.add_message(MessageLogSettings.WELCOME_LINE)
 
     # -------------------------
     # BOOT / SETUP
@@ -90,34 +116,139 @@ class GameManager:
             if all(joystick.get_button(button) for button in required_buttons):
                 return True
         return False
-    
+
+    # -------------------------
+    # TURN LOGIC
+    # -------------------------
+
+    def _do_roll(self) -> None:
+        """Ask the engine to roll, then throw the dice with the pre-decided results.
+
+        Called when SPACE is pressed and the turn is still in ROLLING state.
+        All dice are animated; the turn result is processed once they settle.
+        """
+        if not self._turn_engine.can_roll:
+            return
+
+        result = self._turn_engine.roll()
+
+        # Pad the lists to DiceSettings.COUNT so `roll_with_results` always
+        # gets exactly COUNT pairs (extra dice render as EMPTY filler at
+        # face 3, which is a neutral EMPTY-mapped pip count).
+        faces = list(result.faces)
+        outcomes = list(result.outcomes)
+        while len(faces) < 3:
+            faces.append(3)
+            outcomes.append(Outcome.EMPTY)
+
+        self.dice_roller.roll_with_results(faces, outcomes)
+        self._waiting_for_roll = True
+        self._last_roll_result = result
+
+    def _on_dice_settled(self) -> None:
+        """Called the first frame all dice settle after a roll.
+
+        Logs the roll result and checks for bust. Running totals live in the
+        stats panel now, so the log focuses on events: the roll itself and
+        any state change (bust / bank / win).
+        """
+        result = self._last_roll_result
+        self._waiting_for_roll = False
+
+        # Build a readable summary of this roll.
+        mimic_count    = result.outcomes.count(Outcome.MIMIC)
+        treasure_count = result.outcomes.count(Outcome.TREASURE)
+        empty_count    = result.outcomes.count(Outcome.EMPTY)
+
+        parts: list[str] = []
+        if mimic_count:
+            parts.append(f"{mimic_count} MIMIC{'S' if mimic_count > 1 else ''}")
+        if treasure_count:
+            parts.append(f"{treasure_count} TREASURE")
+        if empty_count:
+            parts.append(f"{empty_count} EMPTY")
+        roll_summary = ",  ".join(parts) if parts else "NOTHING"
+        self.message_log.add_message(f"ROLLED: {roll_summary}")
+
+        if result.status == TurnStatus.BUST:
+            self.message_log.add_message(
+                f"BUST!  {result.turn_mimics} MIMICS.  SCORE: {self._player_score}"
+            )
+            self._turn_engine.start_turn()
+
+    def _do_bank(self) -> None:
+        """Bank the current turn's treasure.
+
+        Ignored if dice are still rolling, the turn is already over, or the
+        player hasn't rolled yet this turn.
+        """
+        if self._waiting_for_roll:
+            return
+        if not self._turn_engine.can_roll:
+            return
+        if self._turn_engine.turn_treasures == 0 and self._turn_engine.turn_mimics == 0:
+            # Player hasn't rolled yet this turn — nothing to bank.
+            self.message_log.add_message("ROLL FIRST!")
+            return
+
+        banked = self._turn_engine.bank()
+        self._player_score += banked
+        self.message_log.add_message(
+            f"BANKED {banked} TREASURE.  TOTAL: {self._player_score}"
+        )
+
+        # Win condition: first to WIN_SCORE triggers the final round.
+        # Phase 0 has no other players to give a final turn to, so for now
+        # we celebrate the win and reset; Phase 0 Game-Flow will replace
+        # this stub with the proper final-round logic.
+        if self._player_score >= TurnSettings.WIN_SCORE and not self._final_round_triggered:
+            self._final_round_triggered = True
+            self.message_log.add_message(
+                f"WIN!  REACHED {TurnSettings.WIN_SCORE} TREASURE."
+            )
+            self._turn_engine.start_turn()
+            self._player_score = 0
+            self._final_round_triggered = False
+            return
+
+        self._turn_engine.start_turn()
+
     # -------------------------
     # INPUT HANDLING
     # -------------------------
 
     def _handle_keydown(self, event) -> None:
         """Route one keyboard press to the appropriate UI/gameplay handler."""
-        # F11 fullscreen toggle is global and intentionally falls through so
-        # other handlers still see the press.
+        # F11 fullscreen toggle is global.
         if event.key == pygame.K_F11:
             pygame.display.toggle_fullscreen()
             self.full_screen = not self.full_screen
 
-        # Trigger the roll
+        # Roll.
         if event.key == pygame.K_SPACE:
-            self.dice_roller.roll_all()
+            self._do_roll()
+
+        # Bank (A or Enter).
+        if event.key in (pygame.K_a, pygame.K_RETURN):
+            self._do_bank()
 
     def _handle_joybuttondown(self, event) -> None:
         """Route one controller button press."""
-        # Catch the multi-button quit chord on press for instant response;
-        # the outer per-frame check covers held-state quits.
         if self.quit_combo_pressed():
             self.close_game()
 
-        # BACK is the global fullscreen toggle and falls through.
+        # Back is the global fullscreen toggle.
         if event.button == InputSettings.JOY_BUTTON_BACK:
             pygame.display.toggle_fullscreen()
             self.full_screen = not self.full_screen
+
+        # A button: bank.
+        if event.button == InputSettings.JOY_BUTTON_A:
+            self._do_bank()
+
+        # B button: roll.
+        if event.button == InputSettings.JOY_BUTTON_B:
+            self._do_roll()
 
     def _handle_joyhatmotion(self, event) -> None:
         """Route a D-pad direction event."""
@@ -149,46 +280,58 @@ class GameManager:
 
     def _update_world(self) -> None:
         """Advance every gameplay system by one frame."""
-        # `clock.get_time()` returns the last tick's duration in milliseconds;
-        # converting to seconds gives us a frame-rate-independent dt.
         dt = self.clock.get_time() / 1000.0
         self.dice_roller.update(dt)
+        self.message_log.update()
+
+        # Detect when all dice have finished rolling after a triggered roll.
+        if self._waiting_for_roll and self.dice_roller.all_settled:
+            self._on_dice_settled()
 
     def _draw_panel_frames(self) -> None:
-        """Draw the empty stats panel and message log frames.
+        """Draw the message log frame.
 
-        Each panel is a filled rounded rectangle with an outlined border.
-        Contents (player rows, log lines, etc.) land in a later pass; for
-        now only the frames render so we can verify the layout.
+        The stats panel paints its own frame and contents in `_render_frame`;
+        the log frame is drawn here so the log text can blit on top of it
+        cleanly.
         """
         window_size = self.screen.get_size()
-        stats_rect = layout.stats_panel_rect(window_size)
         log_rect = layout.message_log_rect(window_size)
 
-        for panel_rect in (stats_rect, log_rect):
-            pygame.draw.rect(
-                self.screen,
-                ColorSettings.PANEL_FILL_COLOR,
-                panel_rect,
-                border_radius=LayoutSettings.PANEL_BORDER_RADIUS,
-            )
-            pygame.draw.rect(
-                self.screen,
-                ColorSettings.PANEL_BORDER_COLOR,
-                panel_rect,
-                width=LayoutSettings.PANEL_BORDER_WIDTH,
-                border_radius=LayoutSettings.PANEL_BORDER_RADIUS,
-            )
+        pygame.draw.rect(
+            self.screen,
+            ColorSettings.PANEL_FILL_COLOR,
+            log_rect,
+            border_radius=LayoutSettings.PANEL_BORDER_RADIUS,
+        )
+        pygame.draw.rect(
+            self.screen,
+            ColorSettings.PANEL_BORDER_COLOR,
+            log_rect,
+            width=LayoutSettings.PANEL_BORDER_WIDTH,
+            border_radius=LayoutSettings.PANEL_BORDER_RADIUS,
+        )
 
     def _render_frame(self) -> None:
-        """Composite one frame: background, gameplay, UI frames, then CRT overlay."""
+        """Composite one frame: background, gameplay, UI panels, then CRT overlay."""
         self.screen.fill(ColorSettings.BG_COLOR)
 
-        # Draw the dice BEFORE the CRT overlay so scanlines sit on top.
         self.dice_roller.draw(self.screen)
         self._draw_panel_frames()
 
-        # Apply CRT pass after world/UI rendering.
+        window_size = self.screen.get_size()
+        log_rect = layout.message_log_rect(window_size)
+        stats_rect = layout.stats_panel_rect(window_size)
+        self.message_log.draw(self.screen, log_rect)
+        self.stats_panel.draw(
+            self.screen,
+            stats_rect,
+            player_name=StatsPanelSettings.HUMAN_PLAYER_NAME,
+            score=self._player_score,
+            set_aside_faces=self._turn_engine.set_aside_faces,
+            set_aside_outcomes=self._turn_engine.set_aside_outcomes,
+        )
+
         if not self.full_screen and not DebugSettings.DISABLE_CRT:
             self.crt.draw()
 
@@ -202,6 +345,7 @@ class GameManager:
             self._render_frame()
             pygame.display.flip()
             self.clock.tick(ScreenSettings.FPS)
+
 
 if __name__ == "__main__":
     game_manager = GameManager()

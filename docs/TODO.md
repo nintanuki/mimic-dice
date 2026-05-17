@@ -9,14 +9,14 @@ This file tracks work in **phases**. Each phase has a clear goal; finish a phase
 **Goal:** A complete, end-to-end game of Mimic Dice with simplified dice (all dice are mechanically identical, equal 1/3-1/3-1/3 odds) so the engine, UI, AI integration, and game loop all land before any color-distribution work begins. One human plus 3 random AI bots, full Zombie Dice rules otherwise, 1-6 number-faced dice rendered in red/grey/green by outcome. Lizzie sits out this phase because she needs real color variety to make decisions; she returns unchanged in Phase 1.
 
 ### Rules engine
-- [ ] Add `Outcome` constants (MIMIC / EMPTY / TREASURE) and a `face_to_outcome(face)` map: faces 1-2 → MIMIC, 3-4 → EMPTY, 5-6 → TREASURE.
-- [ ] Model a 13-die identical bag; draw 3 dice per roll; hold over empty-chest dice from the previous roll (they take their fresh outcome on the next roll) and refill from the bag to bring the hand back to 3.
-- [ ] When the bag empties mid-turn, recycle set-aside treasure chests back into the bag (not mimics).
-- [ ] Track per-turn treasure and per-turn mimics; bust at 3 mimics; bank action commits per-turn treasure to score.
-- [ ] Win condition: first to 13 treasure triggers a final round; highest score after the round wins.
+- [x] Add `Outcome` constants (MIMIC / EMPTY / TREASURE) and a `face_to_outcome(face)` map: faces 1-2 → MIMIC, 3-4 → EMPTY, 5-6 → TREASURE.
+- [x] Model a 13-die identical bag; draw 3 dice per roll; hold over empty-chest dice from the previous roll (they take their fresh outcome on the next roll) and refill from the bag to bring the hand back to 3.
+- [x] When the bag empties mid-turn, recycle set-aside treasure chests back into the bag (not mimics).
+- [x] Track per-turn treasure and per-turn mimics; bust at 3 mimics; bank action commits per-turn treasure to score.
+- [x] Win condition: first to 13 treasure triggers a final round; highest score after the round wins.
 
 ### Visual placeholder mapping
-- [ ] Render each rolled die using the sprite sheet row that matches its outcome: MIMIC → row 3 (red), EMPTY → row 2 (grey), TREASURE → row 9 (green). All dice still have equal odds; the color is purely a readability cue.
+- [x] Render each rolled die using the sprite sheet row that matches its outcome: MIMIC → row 3 (red), EMPTY → row 2 (grey), TREASURE → row 9 (green). All dice still have equal odds; the color is purely a readability cue.
 
 ### AI opponents
 - [ ] Copy the bots from `legacy/zombie-dice-bots/` into `systems/bots/` and adapt them to drive our engine (no edits to `legacy/`).
@@ -25,9 +25,9 @@ This file tracks work in **phases**. Each phase has a clear goal; finish a phase
 - [ ] Bot pacing delay so the player can see each AI roll resolve.
 
 ### UI windows
-- [ ] Tall thin **stats panel** on the right: player names, scores, current-turn indicator, timer/round counter, bot difficulty icons (`aku.png` skulls for difficulty tier, `lau.png` flower for tutorial).
-- [ ] Wide **message log** on the bottom with a typewriter reveal ported from Dungeon Digger.
-- [ ] Wire log to game events: rolls, MIMIC, BUST, BANK, turn changes, WIN.
+- [ ] Tall thin **stats panel** on the right: player names, scores, current-turn indicator, timer/round counter, bot difficulty icons (`aku.png` skulls for difficulty tier, `lau.png` flower for tutorial). *(Single-player skeleton landed: player name, banked score, this-turn TREASURE + MIMIC thumbs. Multi-player rows + indicators + difficulty icons land with the AI adapter.)*
+- [x] Wide **message log** on the bottom with a typewriter reveal ported from Dungeon Digger.
+- [x] Wire log to game events: rolls, MIMIC, BUST, BANK, turn changes, WIN. (Bot turn changes land with the AI adapter.)
 
 ### Game flow
 - [ ] New-game setup picks the human plus 3 random non-Lizzie bots. Lineup re-rolls each new game.

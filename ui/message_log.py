@@ -27,8 +27,13 @@ class MessageLog:
     """Render and animate the scrolling in-game message log."""
 
     def __init__(self):
-        """Initialize message history, highlighting rules, and typewriter state."""
-        self.messages = list(MessageLogSettings.WELCOME_MESSAGE)
+        """Initialize message history, highlighting rules, and typewriter state.
+
+        The log starts empty. `GameManager` is the single source of the
+        opening greeting and any subsequent event lines so we never end up
+        showing the same line twice in a row.
+        """
+        self.messages: list[str] = []
         self.font = pygame.font.Font(FontSettings.FONT, MessageLogSettings.FONT_SIZE)
         self.highlight_terms = self._build_highlight_terms()
 

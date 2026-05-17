@@ -74,6 +74,19 @@ If a question is asked about *why* code was written a certain way, that is a req
 
 ---
 
+## Verifying edits in a Cowork session (OneDrive sync caveat)
+
+Mimic Dice lives under OneDrive. In a Cowork session, the file tools (Read / Write / Edit) talk to the Windows-side file system and reflect every edit immediately, but the Linux shell sees the workspace through a mount that lags Windows by anywhere from a few seconds to a few minutes after each write. Anything run through `bash` — including any `python3` invocation — may execute against the stale file and produce errors that have nothing to do with what's actually on disk.
+
+To avoid wasting time on stale views:
+
+- Do not verify just-edited Python by `import`-ing it through `bash`. The interpreter will execute the old file.
+- For behavior checks, paste the relevant logic into a `python3 -c` one-liner and test it inline, rather than importing from the source file you just wrote.
+- For file-content checks, use the Read tool, not `cat` / `sed` / `wc`. Read is immediate.
+- Real runtime tests (`python main.py`, controller input, fullscreen toggle, the Mental testing checklist below) belong on the Windows side outside Cowork; the Linux shell can't run pygame anyway.
+
+---
+
 ## Mental testing checklist (run after major changes)
 
 - The game still launches (`python main.py`).
