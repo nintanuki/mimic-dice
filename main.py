@@ -471,7 +471,17 @@ class GameManager:
             if event.type == pygame.QUIT:
                 self.close_game()
             elif event.type == pygame.VIDEORESIZE:
-                self.dice_roller.resize((event.width, event.height))
+                # Read the size off the current surface instead of the
+                # event payload for two reasons. (1) `pygame.event.Event`
+                # for VIDEORESIZE exposes `.size`/`.w`/`.h` but not
+                # `.width`/`.height`, so the original code was a latent
+                # AttributeError waiting for a real resize. (2) When SDL
+                # fires VIDEORESIZE from a `FULLSCREEN | SCALED` swap,
+                # the event carries the monitor's pixel size, but our
+                # logical surface stays at the canonical RESOLUTION;
+                # `self.screen.get_size()` always reports the size the
+                # layout actually has to deal with.
+                self.dice_roller.resize(self.screen.get_size())
             elif event.type == pygame.KEYDOWN:
                 self._handle_keydown(event)
             elif event.type == pygame.JOYBUTTONDOWN:
